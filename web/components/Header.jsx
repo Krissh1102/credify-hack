@@ -25,31 +25,6 @@ import {
 import { IconMenu2 } from "@tabler/icons-react";
 
 const Header = ({ setOpen }) => {
-  const { setTheme } = useTheme();
-
-  // Google Translate script
-  useEffect(() => {
-    window.googleTranslateElementInit = () => {
-      new window.google.translate.TranslateElement(
-        {
-          pageLanguage: "en",
-          includedLanguages: "en,hi,mr,gu,ta", // your languages
-          layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
-        },
-        "google_translate_element",
-      );
-    };
-
-    const script = document.createElement("script");
-    script.src =
-      "https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit";
-    script.async = true;
-    document.head.appendChild(script);
-
-    return () => {
-      document.head.removeChild(script);
-    };
-  }, []);
 
   return (
     <header className="fixed top-0 w-full bg-white/80 backdrop-blur-md z-50 border-b h-17 dark:bg-black">
