@@ -20,6 +20,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 
 import { useEffect, useState } from "react";
+import AiInsightWidget from "@/components/AiInsightWidget";
 
 export default function DashboardOverview() {
   const [investments, setInvestments] = useState([]);
@@ -271,6 +272,12 @@ export default function DashboardOverview() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      {/* AI Insights */}
+      <div className="grid gap-4 md:grid-cols-2 mt-6">
+        <AiInsightWidget title="Investment Health" insightType="investment_health" />
+        <AiInsightWidget title="Savings Rate" insightType="savings_rate" />
       </div>
     </div>
   );

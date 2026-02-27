@@ -5,7 +5,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { checkUser } from "@/lib/checkUser";
 
-export async function getCurrentBudget(accountId) {
+export async function getCurrentBudget(userIdOrIgnore) {
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
@@ -41,7 +41,6 @@ export async function getCurrentBudget(accountId) {
           gte: startOfMonth,
           lte: endOfMonth,
         },
-        accountId,
       },
       _sum: {
         amount: true,

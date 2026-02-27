@@ -8,8 +8,6 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { useState } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-
-
 const COLORS = [
   "#FF6B6B",
   "#4ECDC4",
@@ -165,7 +163,7 @@ export function DashboardOverview({ accounts, transactions }) {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value) => `$${value.toFixed(2)}`}
+                    formatter={(value) => `₹${value.toFixed(2)}`}
                     contentStyle={{
                       backgroundColor: "hsl(var(--popover))",
                       border: "1px solid hsl(var(--border))",
