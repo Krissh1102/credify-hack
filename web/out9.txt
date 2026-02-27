@@ -1,0 +1,2 @@
+Status: 400
+Body: {"traceId":"1-69a1e97e-185be68e07d396e46e9cb2c7","errorCode":"InvalidRequest","errorMsg":"2 validation error(s): [1] purpose -> category -> Missing data for required field. [2] purpose -> Category -> Unknown field."}
