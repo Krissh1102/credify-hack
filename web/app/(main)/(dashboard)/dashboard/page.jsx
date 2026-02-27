@@ -1,4 +1,6 @@
 import { getDashboardData, getUserAccounts } from "@/actions/dashboard";
+import { getFinancialContext } from "@/actions/aiInsights";
+import { getSetuConsentStatus } from "@/actions/setu";
 import { CreateAccountDrawer } from "@/components/create-account-drawer";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Link2, Trash2 } from "lucide-react";
