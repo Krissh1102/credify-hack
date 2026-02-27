@@ -1,171 +1,105 @@
-import 'dart:convert';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-
-import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:clerk_auth/clerk_auth.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 class ClerkAuthService {
-  static const String _frontendApi =
-      'https://intense-haddock-31.clerk.accounts.dev';
-  static const _storage = FlutterSecureStorage();
+  static SupabaseClient get _db => Supabase.instance.client;
+  
+  // Singleton instance for the Clerk Auth SDK
+  static late Auth _auth;
+  static Auth get auth => _auth;
 
-  static const _sessionTokenKey = 'clerk_session_token';
-  static const _sessionIdKey = 'clerk_session_id';
-  static const _clientIdKey = 'clerk_client_id';
+  /// ─── Initialization ─────────────────────────────────────────────
+  /// Call this once in your main.dart before runApp()
+  static Future<void> init(String publishableKey) async {
+    // 1. Get a safe local directory for Flutter to store session data
+    final directory = await getApplicationDocumentsDirectory();
 
-  // // Your Web Client ID from Google Cloud Console
-  // static final _googleSignIn = GoogleSignIn(
-  //   serverClientId:
-  //       'YOUR_GOOGLE_WEB_CLIENT_ID.apps.googleusercontent.com',
-  //   scopes: ['email', 'profile'],
-  // );
+    // 2. Initialize Auth with the required Persistor
+    _auth = Auth(
+      config: AuthConfig(
+        publishableKey: publishableKey,
+        persistor: DefaultPersistor(
+          getCacheDirectory: () => directory,
+        ),
+      ),
+    );
+    await _auth.initialize();
+  }
 
-  // ─── Email/Password Sign In (existing) ────────────────────────
+  // ─── Sign In ───────────────────────────────────────────────────
   static Future<String?> signIn(String email, String password) async {
     try {
-      final createRes = await http.post(
-        Uri.parse('$_frontendApi/v1/client/sign_ins'),
-        headers: _headers(),
-        body: jsonEncode({'identifier': email}),
+      await _auth.attemptSignIn(
+        strategy: Strategy.password,
+        identifier: email,
+        password: password,
       );
 
-      final createBody = jsonDecode(createRes.body) as Map<String, dynamic>;
-      if (createRes.statusCode != 200) return _extractError(createBody);
-
-      final signInId = createBody['response']['id'] as String;
-      final clientId = createBody['client']['id'] as String;
-
-      final attemptRes = await http.post(
-        Uri.parse(
-          '$_frontendApi/v1/client/sign_ins/$signInId/attempt_first_factor',
-        ),
-        headers: _headers(),
-        body: jsonEncode({'strategy': 'password', 'password': password}),
-      );
-
-      final attemptBody = jsonDecode(attemptRes.body) as Map<String, dynamic>;
-      if (attemptRes.statusCode != 200) return _extractError(attemptBody);
-
-      final status = attemptBody['response']['status'] as String?;
-      if (status != 'complete') {
-        return 'Additional verification required (status: $status)';
+      final user = _auth.user;
+      if (user == null) {
+        return 'Additional verification required (status incomplete)';
       }
 
-      return await _persistSession(attemptBody, clientId);
+      // Sync user to Supabase (best-effort, non-blocking)
+      await _upsertUserToSupabase(user, email);
+      return null; // ✅ success
+      
+    } on AuthError catch (e) {
+      return e.message;
     } catch (e) {
       return 'Unexpected error: $e';
     }
   }
 
-  // // ─── Google Sign In ───────────────────────────────────────────
-  // static Future<String?> signInWithGoogle() async {
-  //   try {
-  //     // Step 1: Trigger native Google sign-in to get ID token
-  //     final googleUser = await _googleSignIn.signIn();
-  //     if (googleUser == null) return 'Google sign-in cancelled';
+  // ─── Upsert user into Supabase `users` table ──────────────────
+  static Future<void> _upsertUserToSupabase(User clerkUser, String email) async {
+    try {
+      final firstName = clerkUser.firstName ?? '';
+      final lastName = clerkUser.lastName ?? '';
+      final fullName = '$firstName $lastName'.trim();
+      final imageUrl = clerkUser.imageUrl;
+      
+      // `clerkUser.id` is the stable Clerk user UUID
+      final userId = clerkUser.id; 
 
-  //     final googleAuth = await googleUser.authentication;
-  //     final idToken = googleAuth.idToken;
-  //     if (idToken == null) return 'Failed to get Google ID token';
+      await _db.from('users').upsert({
+        'id': userId,
+        'clerkUserId': userId,
+        'email': email,
+        'name': fullName.isNotEmpty ? fullName : email.split('@').first,
+        if (imageUrl != null && imageUrl.isNotEmpty) 'imageUrl': imageUrl,
+      }, onConflict: 'id');
+      
+    } on PostgrestException catch (e) {
+      print('[ClerkAuthService] Supabase upsert failed: ${e.message}');
+    } catch (e) {
+      print('[ClerkAuthService] Supabase upsert error: $e');
+    }
+  }
 
-  //     // Step 2: Create Clerk sign-in with Google token
-  //     final createRes = await http.post(
-  //       Uri.parse('$_frontendApi/v1/client/sign_ins'),
-  //       headers: _headers(),
-  //       body: jsonEncode({
-  //         'strategy': 'oauth_google',
-  //         'redirect_url': '$_frontendApi/v1/oauth_callback',
-  //       }),
-  //     );
-
-  //     final createBody = jsonDecode(createRes.body) as Map<String, dynamic>;
-  //     if (createRes.statusCode != 200) return _extractError(createBody);
-
-  //     final signInId = createBody['response']['id'] as String;
-  //     final clientId = createBody['client']['id'] as String;
-
-  //     // Step 3: Attempt with the ID token
-  //     final attemptRes = await http.post(
-  //       Uri.parse('$_frontendApi/v1/client/sign_ins/$signInId/attempt_first_factor'),
-  //       headers: _headers(),
-  //       body: jsonEncode({
-  //         'strategy': 'oauth_google',
-  //         'token': idToken,
-  //       }),
-  //     );
-
-  //     final attemptBody = jsonDecode(attemptRes.body) as Map<String, dynamic>;
-  //     if (attemptRes.statusCode != 200) return _extractError(attemptBody);
-
-  //     final status = attemptBody['response']['status'] as String?;
-  //     if (status != 'complete') {
-  //       return 'Google auth incomplete (status: $status)';
-  //     }
-
-  //     return await _persistSession(attemptBody, clientId);
-  //   } catch (e) {
-  //     return 'Google sign-in error: $e';
-  //   }
-  // }
-
-  // ─── Sign Out ─────────────────────────────────────────────────
+  // ─── Sign Out ──────────────────────────────────────────────────
   static Future<void> signOut() async {
     try {
-      final sessionId = await _storage.read(key: _sessionIdKey);
-      final token = await _storage.read(key: _sessionTokenKey);
-
-      if (sessionId != null && token != null) {
-        await http.delete(
-          Uri.parse('$_frontendApi/v1/client/sessions/$sessionId'),
-          headers: _headers(token: token),
-        );
-      }
-      // await _googleSignIn.signOut(); // also clear Google session
-    } catch (_) {
-    } finally {
-      await _storage.deleteAll();
+      await _auth.signOut();
+    } catch (e) {
+      print('[ClerkAuthService] Sign out error: $e');
     }
   }
 
-  // ─── Shared session persistence ───────────────────────────────
-  static Future<String?> _persistSession(
-    Map<String, dynamic> body,
-    String clientId,
-  ) async {
-    final sessions = body['client']['sessions'] as List<dynamic>;
-    if (sessions.isEmpty) return 'No session returned from Clerk';
+  // ─── Helpers ───────────────────────────────────────────────────
+  
+  /// Get the current user's stable Clerk ID
+  static String? get currentUserId => _auth.user?.id;
 
-    final session = sessions.first as Map<String, dynamic>;
-    final sessionId = session['id'] as String;
-    final sessionToken = session['last_active_token']?['jwt'] as String? ?? '';
-
-    await _storage.write(key: _sessionTokenKey, value: sessionToken);
-    await _storage.write(key: _sessionIdKey, value: sessionId);
-    await _storage.write(key: _clientIdKey, value: clientId);
-
-    return null; // success
+  /// Get the current active session JWT token
+  static Future<SessionToken> getSessionToken() async {
+    return await _auth.sessionToken(); 
   }
 
-  static Future<String?> getSessionToken() =>
-      _storage.read(key: _sessionTokenKey);
-
-  static Future<bool> isSignedIn() async {
-    final token = await _storage.read(key: _sessionTokenKey);
-    return token != null && token.isNotEmpty;
-  }
-
-  static Map<String, String> _headers({String? token}) => {
-    'Content-Type': 'application/json',
-    if (token != null) 'Authorization': 'Bearer $token',
-  };
-
-  static String _extractError(Map<String, dynamic> body) {
-    final errors = body['errors'] as List<dynamic>?;
-    if (errors != null && errors.isNotEmpty) {
-      final first = errors.first as Map<String, dynamic>;
-      return first['long_message'] as String? ??
-          first['message'] as String? ??
-          'Unknown error';
-    }
-    return body['message'] as String? ?? 'Unknown error';
+  /// Check if the user is currently signed in
+  static bool isSignedIn() {
+    return _auth.user != null;
   }
 }

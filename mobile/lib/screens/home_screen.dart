@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:mobile/models/user_provider.dart';
+
 import 'package:mobile/screens/dashboard_screen.dart';
 import 'package:mobile/screens/debt_screen.dart';
 import 'package:mobile/screens/learn_screen.dart';
@@ -26,6 +28,15 @@ class _HomeScreenState extends State<HomeScreen>
     SavingsScreen(),
     LearnScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Load user data once when HomeScreen mounts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      UserNotifier().load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -73,8 +84,7 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PERSISTENT APP HEADER
-// Lifted out of DashboardScreen so it stays visible across all tabs.
+// PERSISTENT APP HEADER — now driven by UserNotifier
 // ═══════════════════════════════════════════════════════════════
 class _AppHeader extends StatelessWidget {
   const _AppHeader();
@@ -82,73 +92,161 @@ class _AppHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final av = R.p(44).clamp(38.0, 52.0);
-    return Row(
-      children: [
-        // Avatar
-        Container(
-          width: av,
-          height: av,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [T.accent, T.accentSoft],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: T.accent.withOpacity(0.35),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              'V',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: R.fs(18),
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: R.p(12)),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Good Evening,',
-                style: TextStyle(
-                  color: T.textSecondary,
-                  fontSize: R.fs(11),
-                  letterSpacing: 0.3,
+
+    return ListenableBuilder(
+      listenable: UserNotifier(),
+      builder: (context, _) {
+        final un = UserNotifier();
+        final user = un.user;
+        final initial = user?.initial ?? '?';
+        final greeting = un.greeting;
+        final displayName = user?.name ?? '—';
+        final imageUrl = user?.imageUrl;
+
+        return Row(
+          children: [
+            // ── Avatar ──────────────────────────────────────
+            Container(
+              width: av,
+              height: av,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [T.accent, T.accentSoft],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: T.accent.withOpacity(0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-              SizedBox(height: R.p(2)),
-              Text(
-                'Vedant Sanjay Kolte',
-                style: TextStyle(
-                  fontSize: R.fs(15),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: ClipOval(
+                child: imageUrl != null
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            _InitialFallback(initial: initial, size: av),
+                      )
+                    : _InitialFallback(initial: initial, size: av),
               ),
-            ],
-          ),
-        ),
-        const _ThemeToggle(),
-        SizedBox(width: R.p(8)),
-        _NIcon(icon: Icons.notifications_outlined, badge: true),
-      ],
+            ),
+
+            SizedBox(width: R.p(12)),
+
+            // ── Name + greeting ─────────────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    greeting,
+                    style: TextStyle(
+                      color: T.textSecondary,
+                      fontSize: R.fs(11),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                  SizedBox(height: R.p(2)),
+                  un.loading && user == null
+                      ? _ShimmerText(width: R.p(140), height: R.fs(15))
+                      : Text(
+                          displayName,
+                          style: TextStyle(
+                            fontSize: R.fs(15),
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.4,
+                            color: T.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                ],
+              ),
+            ),
+
+            const _ThemeToggle(),
+            SizedBox(width: R.p(8)),
+            _NIcon(icon: Icons.notifications_outlined, badge: true),
+          ],
+        );
+      },
     );
   }
 }
+
+// ─── Avatar initial fallback ──────────────────────────────────
+class _InitialFallback extends StatelessWidget {
+  final String initial;
+  final double size;
+  const _InitialFallback({required this.initial, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        initial,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: R.fs(18),
+          fontWeight: FontWeight.w800,
+          letterSpacing: -0.5,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Shimmer placeholder for loading state ────────────────────
+class _ShimmerText extends StatefulWidget {
+  final double width;
+  final double height;
+  const _ShimmerText({required this.width, required this.height});
+
+  @override
+  State<_ShimmerText> createState() => _ShimmerTextState();
+}
+
+class _ShimmerTextState extends State<_ShimmerText>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ac;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ac, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: widget.width,
+        height: widget.height + 2,
+        decoration: BoxDecoration(
+          color: T.border.withOpacity(0.4 + _anim.value * 0.4),
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ),
+    );
+  }
+}
+
 
 class _ThemeToggle extends StatelessWidget {
   const _ThemeToggle();
@@ -236,6 +334,9 @@ class _ThemeToggle extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// NOTIFICATION ICON (unchanged)
+// ═══════════════════════════════════════════════════════════════
 class _NIcon extends StatelessWidget {
   final IconData icon;
   final bool badge;
@@ -283,6 +384,9 @@ class _NIcon extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// BOTTOM NAV (unchanged)
+// ═══════════════════════════════════════════════════════════════
 class _BottomNav extends StatelessWidget {
   final int selected;
   final ValueChanged<int> onTap;
@@ -374,7 +478,6 @@ class _BottomNav extends StatelessWidget {
             );
           }
 
-          // ── Regular tab ───────────────────────────────────
           return Expanded(
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,

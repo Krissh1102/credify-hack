@@ -1,12 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:mobile/screens/login/login_screen.dart';
-import 'package:mobile/theme/dark.dart';
-import 'package:mobile/theme/theme.dart';
 
-// ═══════════════════════════════════════════════════════════════
-// WELCOME SCREEN
-// ═══════════════════════════════════════════════════════════════
+import 'package:mobile/theme/theme.dart';
+import 'package:clerk_flutter/clerk_flutter.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -503,7 +499,6 @@ class _FeaturePills extends StatelessWidget {
 }
 
 // ─── CTA Buttons ─────────────────────────────────────────────────
-
 class _CTAButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -519,7 +514,22 @@ class _CTAButtons extends StatelessWidget {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => LoginScreen()),
+                MaterialPageRoute(
+                  builder: (_) => Scaffold(
+                    body: ClerkAuthBuilder(
+                      signedInBuilder: (context, state) {
+                        // Once signed in → remove auth screen
+                        Future.microtask(() {
+                          Navigator.pop(context);
+                        });
+                        return const SizedBox.shrink();
+                      },
+                      signedOutBuilder: (context, state) {
+                        return const SafeArea(child: ClerkAuthentication());
+                      },
+                    ),
+                  ),
+                ),
               );
             },
             child: Ink(
@@ -562,7 +572,6 @@ class _CTAButtons extends StatelessWidget {
             ),
           ),
         ),
-
         SizedBox(height: R.p(12)),
       ],
     );

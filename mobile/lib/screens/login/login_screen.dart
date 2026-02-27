@@ -85,12 +85,7 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _handleLogin() async {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => HomeScreen()),
-    );
     if (_isLoading) return;
-
     final email = _emailCtrl.text.trim();
     final password = _passCtrl.text;
 
@@ -111,10 +106,14 @@ class _LoginScreenState extends State<LoginScreen>
       _showError(error);
     } else {
       widget.onLogin?.call(email, password);
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
     }
   }
 
-  // ─── Add this helper method to _LoginScreenState ─────────────────
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -307,12 +306,12 @@ class _LoginScreenState extends State<LoginScreen>
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.g_mobiledata),
+                                  Icon(Icons.g_mobiledata, color: Colors.black),
                                   SizedBox(width: R.p(16)),
                                   Text(
                                     'Continue with Google',
                                     style: TextStyle(
-                                      color: T.textPrimary,
+                                      color: Colors.black,
 
                                       fontSize: R.fs(14).clamp(13.0, 16.0),
                                     ),
