@@ -59,8 +59,6 @@ class _DebtScreenState extends State<DebtScreen>
               padding: EdgeInsets.fromLTRB(R.p(20), R.p(10), R.p(20), R.p(24)),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  _DebtHeader(),
-                  SizedBox(height: R.p(20)),
                   _DebtOverviewTitle(),
                   SizedBox(height: R.p(14)),
                   _StatGrid(),
@@ -83,131 +81,6 @@ class _DebtScreenState extends State<DebtScreen>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// HEADER
-// ═══════════════════════════════════════════════════════════════
-class _DebtHeader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final av = R.p(44).clamp(38.0, 52.0);
-    return Row(
-      children: [
-        Container(
-          width: av,
-          height: av,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [T.accent, T.accentSoft],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: T.accent.withOpacity(0.35),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              'V',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: R.fs(18),
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: R.p(12)),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Good Evening,',
-                style: TextStyle(
-                  color: T.textSecondary,
-                  fontSize: R.fs(11),
-                  letterSpacing: 0.3,
-                ),
-              ),
-              SizedBox(height: R.p(2)),
-              Text(
-                'Mr. Vedant Sanjay Kolte',
-                style: TextStyle(
-                  color: T.textPrimary,
-                  fontSize: R.fs(15),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        _NIcon(icon: Icons.search_rounded),
-        SizedBox(width: R.p(6)),
-        _NIcon(icon: Icons.notifications_outlined, badge: true),
-        SizedBox(width: R.p(6)),
-        _NIcon(icon: Icons.settings_outlined),
-      ],
-    );
-  }
-}
-
-class _NIcon extends StatelessWidget {
-  final IconData icon;
-  final bool badge;
-  const _NIcon({required this.icon, this.badge = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = R.p(36).clamp(32.0, 42.0);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Material(
-          color: T.elevated,
-          borderRadius: BorderRadius.circular(R.r(12)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(R.r(12)),
-            onTap: () {},
-            child: Container(
-              width: s,
-              height: s,
-              decoration: BoxDecoration(
-                border: Border.all(color: T.border, width: 1),
-                borderRadius: BorderRadius.circular(R.r(12)),
-              ),
-              child: Icon(icon, color: T.textSecondary, size: R.fs(16)),
-            ),
-          ),
-        ),
-        if (badge)
-          Positioned(
-            top: -2,
-            right: -2,
-            child: Container(
-              width: 7,
-              height: 7,
-              decoration: BoxDecoration(
-                color: T.red,
-                shape: BoxShape.circle,
-                border: Border.all(color: T.bg, width: 1.5),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SECTION TITLE
-// ═══════════════════════════════════════════════════════════════
 class _DebtOverviewTitle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -340,7 +213,7 @@ class _StatCard extends StatelessWidget {
             children: [
               Container(
                 width: R.p(28).clamp(24.0, 34.0),
-                height: R.p(28).clamp(24.0, 34.0),
+                height: R.p(18).clamp(24.0, 34.0),
                 decoration: BoxDecoration(
                   color: data.color.withOpacity(0.14),
                   borderRadius: BorderRadius.circular(R.r(8)),
@@ -511,7 +384,7 @@ class _DebtReductionChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chartH = R.h(18).clamp(120.0, 170.0);
+    final chartH = R.h(20).clamp(120.0, 170.0);
     return _SCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,7 +417,7 @@ class _DebtReductionChart extends StatelessWidget {
               // Bars
               Expanded(
                 child: SizedBox(
-                  height: chartH,
+                  height: 200,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: List.generate(_years.length, (i) {
