@@ -1,3 +1,4 @@
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/models/user_provider.dart';
 
@@ -20,7 +21,6 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   int _navIdx = 0;
 
-  // Keep all screens alive with IndexedStack
   static const _screens = [
     DashboardScreen(),
     DebtScreen(),
@@ -32,9 +32,11 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    // Load user data once when HomeScreen mounts
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      UserNotifier().load();
+      // ✅ Get Clerk user ID from the widget tree (NOT ClerkAuthService)
+      final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
+      UserNotifier().clear();
+      UserNotifier().load(clerkUserId: clerkUserId);
     });
   }
 
@@ -53,7 +55,6 @@ class _HomeScreenState extends State<HomeScreen>
           bottom: false,
           child: Column(
             children: [
-              // ── Persistent header ──────────────────────────
               Padding(
                 padding: EdgeInsets.fromLTRB(
                   R.p(20),
@@ -63,13 +64,9 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
                 child: const _AppHeader(),
               ),
-
-              // ── Screen content ─────────────────────────────
               Expanded(
                 child: IndexedStack(index: _navIdx, children: _screens),
               ),
-
-              // ── Persistent bottom nav ──────────────────────
               _BottomNav(
                 selected: _navIdx,
                 onTap: (i) => setState(() => _navIdx = i),
@@ -84,7 +81,7 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 // ═══════════════════════════════════════════════════════════════
-// PERSISTENT APP HEADER — now driven by UserNotifier
+// APP HEADER — theme-aware colors
 // ═══════════════════════════════════════════════════════════════
 class _AppHeader extends StatelessWidget {
   const _AppHeader();
@@ -100,7 +97,8 @@ class _AppHeader extends StatelessWidget {
         final user = un.user;
         final initial = user?.initial ?? '?';
         final greeting = un.greeting;
-        final displayName = user?.name ?? '—';
+        // ✅ Show first name only (fetched from Supabase users.name)
+        final displayName = user?.firstName ?? '—';
         final imageUrl = user?.imageUrl;
 
         return Row(
@@ -138,11 +136,12 @@ class _AppHeader extends StatelessWidget {
 
             SizedBox(width: R.p(12)),
 
-            // ── Name + greeting ─────────────────────────────
+            // ── Greeting + Name ─────────────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Greeting — uses T.textSecondary (theme-aware)
                   Text(
                     greeting,
                     style: TextStyle(
@@ -152,6 +151,7 @@ class _AppHeader extends StatelessWidget {
                     ),
                   ),
                   SizedBox(height: R.p(2)),
+                  // Name — uses T.textPrimary (theme-aware)
                   un.loading && user == null
                       ? _ShimmerText(width: R.p(140), height: R.fs(15))
                       : Text(
@@ -160,6 +160,8 @@ class _AppHeader extends StatelessWidget {
                             fontSize: R.fs(15),
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.4,
+                            // ✅ T.textPrimary switches between
+                            // white (dark mode) and dark (light mode)
                             color: T.textPrimary,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -200,7 +202,7 @@ class _InitialFallback extends StatelessWidget {
   }
 }
 
-// ─── Shimmer placeholder for loading state ────────────────────
+// ─── Shimmer placeholder ──────────────────────────────────────
 class _ShimmerText extends StatefulWidget {
   final double width;
   final double height;
@@ -247,7 +249,7 @@ class _ShimmerTextState extends State<_ShimmerText>
   }
 }
 
-
+// ─── Theme toggle ─────────────────────────────────────────────
 class _ThemeToggle extends StatelessWidget {
   const _ThemeToggle();
 
@@ -334,9 +336,7 @@ class _ThemeToggle extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// NOTIFICATION ICON (unchanged)
-// ═══════════════════════════════════════════════════════════════
+// ─── Notification icon ────────────────────────────────────────
 class _NIcon extends StatelessWidget {
   final IconData icon;
   final bool badge;
@@ -385,7 +385,7 @@ class _NIcon extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// BOTTOM NAV (unchanged)
+// BOTTOM NAV
 // ═══════════════════════════════════════════════════════════════
 class _BottomNav extends StatelessWidget {
   final int selected;

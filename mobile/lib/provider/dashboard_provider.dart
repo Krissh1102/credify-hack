@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:mobile/services/clerk_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -22,12 +21,12 @@ class AccountModel {
   });
 
   factory AccountModel.fromMap(Map<String, dynamic> m) => AccountModel(
-        id: m['id'] as String? ?? '',
-        name: m['name'] as String? ?? 'Account',
-        type: m['type'] as String? ?? '',
-        balance: (m['balance'] as num?)?.toDouble() ?? 0.0,
-        isDefault: m['isDefault'] as bool? ?? false,
-      );
+    id: m['id'] as String? ?? '',
+    name: m['name'] as String? ?? 'Account',
+    type: m['type'] as String? ?? '',
+    balance: (m['balance'] as num?)?.toDouble() ?? 0.0,
+    isDefault: m['isDefault'] as bool? ?? false,
+  );
 }
 
 class TransactionModel {
@@ -35,7 +34,7 @@ class TransactionModel {
   final String title;
   final String category;
   final double amount;
-  final bool isCredit;
+  final bool isCredit; // true = INCOME, false = EXPENSE
   final DateTime date;
   final String? accountId;
 
@@ -49,8 +48,7 @@ class TransactionModel {
     this.accountId,
   });
 
-  String get formattedAmount =>
-      '${isCredit ? '+' : '-'}₹${_fmt(amount)}';
+  String get formattedAmount => '${isCredit ? '+' : '-'}₹${_fmt(amount)}';
 
   String get relativeDate {
     final now = DateTime.now();
@@ -77,19 +75,27 @@ class TransactionModel {
   }
 
   static String _monthName(int m) => const [
-        '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ][m];
+    '',
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ][m];
 
   factory TransactionModel.fromMap(Map<String, dynamic> m) {
     final amt = (m['amount'] as num?)?.toDouble() ?? 0.0;
-    final type = (m['type'] as String? ?? '').toUpperCase();
+    // ✅ FIX: rely ONLY on the `type` column from the DB.
+    // The old fallback (amt > 0) caused all positive EXPENSE rows
+    // to be treated as income. The DB stores "INCOME" or "EXPENSE".
+    final type = (m['type'] as String? ?? '').toUpperCase().trim();
+    final isCredit = type == 'INCOME' || type == 'CREDIT';
+
     return TransactionModel(
       id: m['id'] as String? ?? '',
-      title: m['title'] as String? ?? m['description'] as String? ?? 'Transaction',
+      title: m['title'] as String? ??
+          m['description'] as String? ??
+          'Transaction',
       category: m['category'] as String? ?? 'General',
       amount: amt.abs(),
-      isCredit: type == 'INCOME' || type == 'CREDIT' || amt > 0,
+      isCredit: isCredit,
       date: m['date'] != null
           ? DateTime.tryParse(m['date'] as String) ?? DateTime.now()
           : DateTime.now(),
@@ -100,7 +106,7 @@ class TransactionModel {
 
 class ExpenseCategoryModel {
   final String label;
-  final double fraction; // 0.0 – 1.0
+  final double fraction;
   final double total;
 
   const ExpenseCategoryModel({
@@ -112,7 +118,7 @@ class ExpenseCategoryModel {
 
 class MonthlyFlow {
   final String month;
-  final double expenseFrac; // relative to max
+  final double expenseFrac;
   final double creditFrac;
   final double expense;
   final double credit;
@@ -129,6 +135,7 @@ class MonthlyFlow {
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD NOTIFIER
 // ═══════════════════════════════════════════════════════════════
+
 class DashboardNotifier extends ChangeNotifier {
   static final DashboardNotifier _instance = DashboardNotifier._();
   factory DashboardNotifier() => _instance;
@@ -136,7 +143,6 @@ class DashboardNotifier extends ChangeNotifier {
 
   static SupabaseClient get _db => Supabase.instance.client;
 
-  // ── State ─────────────────────────────────────────────────────
   bool _loading = false;
   String? _error;
 
@@ -146,11 +152,14 @@ class DashboardNotifier extends ChangeNotifier {
   double _totalSaved = 0;
   double _monthOverMonthPct = 0;
 
+  // ✅ NEW: separate lists for the split UI
   List<TransactionModel> _recentTxns = [];
+  List<TransactionModel> _incomeTxns = [];
+  List<TransactionModel> _expenseTxns = [];
+
   List<ExpenseCategoryModel> _expenseCategories = [];
   List<MonthlyFlow> _monthlyFlow = [];
 
-  // ── Getters ───────────────────────────────────────────────────
   bool get loading => _loading;
   String? get error => _error;
   AccountModel? get account => _account;
@@ -158,7 +167,16 @@ class DashboardNotifier extends ChangeNotifier {
   double get totalExpense => _totalExpense;
   double get totalSaved => _totalSaved;
   double get monthOverMonthPct => _monthOverMonthPct;
+
+  /// All recent transactions (income + expense, latest 20)
   List<TransactionModel> get recentTxns => _recentTxns;
+
+  /// Only INCOME transactions
+  List<TransactionModel> get incomeTxns => _incomeTxns;
+
+  /// Only EXPENSE transactions
+  List<TransactionModel> get expenseTxns => _expenseTxns;
+
   List<ExpenseCategoryModel> get expenseCategories => _expenseCategories;
   List<MonthlyFlow> get monthlyFlow => _monthlyFlow;
 
@@ -166,7 +184,6 @@ class DashboardNotifier extends ChangeNotifier {
     final b = _account?.balance ?? 0;
     if (b >= 10000000) return '₹${(b / 10000000).toStringAsFixed(2)}Cr';
     if (b >= 100000) return '₹${(b / 100000).toStringAsFixed(2)}L';
-    // Indian comma formatting
     final s = b.toStringAsFixed(2);
     final parts = s.split('.');
     final intPart = parts[0];
@@ -180,25 +197,38 @@ class DashboardNotifier extends ChangeNotifier {
     return '₹$buf.${parts[1]}';
   }
 
-  // ── Load ──────────────────────────────────────────────────────
-  Future<void> load() async {
+  Future<String?> _resolveInternalId(String clerkUserId) async {
+    final rows = await _db
+        .from('users')
+        .select('id')
+        .eq('clerkUserId', clerkUserId)
+        .limit(1);
+    if ((rows as List).isEmpty) return null;
+    return (rows.first as Map<String, dynamic>)['id'] as String?;
+  }
+
+  Future<void> load({required String clerkUserId}) async {
     if (_loading) return;
+    if (clerkUserId.isEmpty) {
+      _error = 'Not authenticated';
+      notifyListeners();
+      return;
+    }
+
     _loading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // ✅ Instantly grabs the user ID from the new Clerk SDK
-      final userId = ClerkAuthService.currentUserId; 
-      
-      if (userId == null) {
-        _error = 'Not authenticated';
+      final internalId = await _resolveInternalId(clerkUserId);
+      if (internalId == null) {
+        _error = 'User profile not found. Please sign out and sign in again.';
         return;
       }
 
       await Future.wait([
-        _loadAccount(userId),
-        _loadTransactions(userId),
+        _loadAccount(internalId),
+        _loadTransactions(internalId),
       ]);
     } on PostgrestException catch (e) {
       _error = e.message;
@@ -227,27 +257,33 @@ class DashboardNotifier extends ChangeNotifier {
     final now = DateTime.now();
     final thisMonthStart = DateTime(now.year, now.month, 1);
     final lastMonthStart = DateTime(now.year, now.month - 1, 1);
-
-    // Fetch last 6 months of transactions
     final sixMonthsAgo = DateTime(now.year, now.month - 5, 1);
 
+    // ✅ FIX: fetch last 50 rows (was 5 via .take(5)) so income entries
+    // — which are rarer and older — actually appear in the lists.
     final rows = await _db
         .from('transactions')
         .select()
         .eq('userId', userId)
         .gte('date', sixMonthsAgo.toIso8601String())
-        .order('date', ascending: false);
+        .order('date', ascending: false)
+        .limit(50);
 
     final allTxns = (rows as List)
         .map((r) => TransactionModel.fromMap(r as Map<String, dynamic>))
         .toList();
 
-    // Recent 5 transactions
-    _recentTxns = allTxns.take(5).toList();
+    // ✅ NEW: build separate income / expense lists
+    _incomeTxns = allTxns.where((t) => t.isCredit).toList();
+    _expenseTxns = allTxns.where((t) => !t.isCredit).toList();
 
-    // ✅ FIXED: Using !isBefore so we don't skip transactions made exactly on the 1st
-    final thisMonth = allTxns.where((t) => !t.date.isBefore(thisMonthStart));
-    
+    // "All" tab shows the 20 most recent across both types
+    _recentTxns = allTxns.take(20).toList();
+
+    // ── This-month aggregates ──────────────────────────────────
+    final thisMonth =
+        allTxns.where((t) => !t.date.isBefore(thisMonthStart));
+
     _totalIncome = thisMonth
         .where((t) => t.isCredit)
         .fold(0.0, (s, t) => s + t.amount);
@@ -256,9 +292,11 @@ class DashboardNotifier extends ChangeNotifier {
         .fold(0.0, (s, t) => s + t.amount);
     _totalSaved = (_totalIncome - _totalExpense).clamp(0.0, double.infinity);
 
-    // Month-over-month % change in expenses
+    // ── Month-over-month ───────────────────────────────────────
     final lastMonth = allTxns.where(
-      (t) => !t.date.isBefore(lastMonthStart) && t.date.isBefore(thisMonthStart),
+      (t) =>
+          !t.date.isBefore(lastMonthStart) &&
+          t.date.isBefore(thisMonthStart),
     );
     final lastMonthExpense = lastMonth
         .where((t) => !t.isCredit)
@@ -267,7 +305,7 @@ class DashboardNotifier extends ChangeNotifier {
         ? ((_totalExpense - lastMonthExpense) / lastMonthExpense) * 100
         : 0;
 
-    // Expense categories for pie chart
+    // ── Expense categories (pie chart) ─────────────────────────
     final Map<String, double> catMap = {};
     for (final t in thisMonth.where((t) => !t.isCredit)) {
       catMap[t.category] = (catMap[t.category] ?? 0) + t.amount;
@@ -276,14 +314,20 @@ class DashboardNotifier extends ChangeNotifier {
       final total = catMap.values.fold(0.0, (s, v) => s + v);
       final sorted = catMap.entries.toList()
         ..sort((a, b) => b.value.compareTo(a.value));
-      _expenseCategories = sorted.map((e) => ExpenseCategoryModel(
-            label: e.key,
-            fraction: e.value / total,
-            total: e.value,
-          )).toList();
+      _expenseCategories = sorted
+          .map(
+            (e) => ExpenseCategoryModel(
+              label: e.key,
+              fraction: e.value / total,
+              total: e.value,
+            ),
+          )
+          .toList();
+    } else {
+      _expenseCategories = [];
     }
 
-    // Monthly flow for bar chart (last 6 months)
+    // ── 6-month cashflow bars ──────────────────────────────────
     final Map<String, _FlowAccum> flowMap = {};
     for (final t in allTxns) {
       final key = _monthKey(t.date);
@@ -295,7 +339,6 @@ class DashboardNotifier extends ChangeNotifier {
       }
     }
 
-    // Build last 6 months in order
     final months = List.generate(6, (i) {
       final d = DateTime(now.year, now.month - 5 + i, 1);
       return _monthKey(d);
@@ -312,13 +355,15 @@ class DashboardNotifier extends ChangeNotifier {
     );
 
     _monthlyFlow = flows
-        .map((f) => MonthlyFlow(
-              month: f.month,
-              expense: f.expense,
-              credit: f.credit,
-              expenseFrac: maxVal > 0 ? f.expense / maxVal : 0,
-              creditFrac: maxVal > 0 ? f.credit / maxVal : 0,
-            ))
+        .map(
+          (f) => MonthlyFlow(
+            month: f.month,
+            expense: f.expense,
+            credit: f.credit,
+            expenseFrac: maxVal > 0 ? f.expense / maxVal : 0,
+            creditFrac: maxVal > 0 ? f.credit / maxVal : 0,
+          ),
+        )
         .toList();
   }
 
@@ -328,9 +373,13 @@ class DashboardNotifier extends ChangeNotifier {
   void clear() {
     _account = null;
     _recentTxns = [];
+    _incomeTxns = [];
+    _expenseTxns = [];
     _expenseCategories = [];
     _monthlyFlow = [];
     _totalIncome = _totalExpense = _totalSaved = 0;
+    _loading = false;
+    _error = null;
     notifyListeners();
   }
 }

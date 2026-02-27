@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile/provider/transaction_provider.dart';
 
 import 'package:mobile/screens/home_screen.dart';
 import 'package:mobile/screens/login/welcome_screen.dart';
@@ -7,11 +8,13 @@ import 'package:mobile/services/clerk_service.dart';
 import 'package:mobile/theme/dark.dart';
 import 'package:mobile/theme/light.dart';
 import 'package:mobile/theme/theme.dart';
+import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:clerk_flutter/clerk_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // ← must be first
+
   await Supabase.initialize(
     url: 'https://fstsmsctqrypxnxhsfgh.supabase.co',
     anonKey: 'sb_publishable_EiT7dnIuSsq683PC28EVPw_L5VBmiEk',
@@ -23,13 +26,19 @@ void main() async {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
   runApp(
     ClerkAuth(
       config: ClerkAuthConfig(
         publishableKey:
             'pk_test_aW50ZW5zZS1oYWRkb2NrLTMxLmNsZXJrLmFjY291bnRzLmRldiQ',
       ),
-      child: const ThemeProvider(child: FinanceApp()),
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => TransactionProvider()),
+        ],
+        child: const ThemeProvider(child: FinanceApp()),
+      ),
     ),
   );
 }

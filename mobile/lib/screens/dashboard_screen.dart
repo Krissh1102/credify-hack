@@ -1,10 +1,10 @@
 import 'dart:math' as math;
 
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/provider/dashboard_provider.dart';
 
 import 'package:mobile/theme/theme.dart';
-
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -35,7 +35,11 @@ class _DashboardScreenState extends State<DashboardScreen>
 
     // Load dashboard data
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      DashboardNotifier().load();
+      final userId = ClerkAuth.of(context).user?.id ?? '';
+      debugPrint('[Auth] userId: "$userId"');
+      DashboardNotifier().clear();
+
+      DashboardNotifier().load(clerkUserId: userId);
     });
   }
 
@@ -737,11 +741,22 @@ class _ExpenseRow extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// RECENT TRANSACTIONS
+// RECENT TRANSACTIONS — Income / Expense split, preview + See All
+// Replace the existing _RecentTransactions class in dashboard_screen.dart
 // ═══════════════════════════════════════════════════════════════
-class _RecentTransactions extends StatelessWidget {
+class _RecentTransactions extends StatefulWidget {
   final DashboardNotifier dn;
   const _RecentTransactions({required this.dn});
+
+  @override
+  State<_RecentTransactions> createState() => _RecentTransactionsState();
+}
+
+class _RecentTransactionsState extends State<_RecentTransactions> {
+  int _tab = 0; // 0 = All  1 = Income  2 = Expense
+  bool _showAll = false; // false = preview (5), true = all
+
+  static const int _previewCount = 5;
 
   static IconData _iconForCategory(String cat) {
     final c = cat.toLowerCase();
@@ -762,17 +777,42 @@ class _RecentTransactions extends StatelessWidget {
     if (c.contains('invest')) return Icons.trending_up_rounded;
     if (c.contains('bill') || c.contains('util'))
       return Icons.receipt_long_rounded;
+    if (c.contains('freelance') || c.contains('other-income'))
+      return Icons.work_rounded;
     return Icons.currency_rupee_rounded;
+  }
+
+  // Reset _showAll whenever the tab changes so each tab starts collapsed
+  void _switchTab(int tab) {
+    setState(() {
+      _tab = tab;
+      _showAll = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final txns = dn.recentTxns;
-    final isLoading = dn.loading && txns.isEmpty;
+    final dn = widget.dn;
+    final isLoading = dn.loading;
+
+    // Full list for the active tab
+    final List<TransactionModel> allTxns = _tab == 0
+        ? dn.recentTxns
+        : _tab == 1
+        ? dn.incomeTxns
+        : dn.expenseTxns;
+
+    // Slice shown on screen
+    final List<TransactionModel> visibleTxns = _showAll
+        ? allTxns
+        : allTxns.take(_previewCount).toList();
+
+    final bool hasMore = !_showAll && allTxns.length > _previewCount;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // ── Header ──────────────────────────────────────────────
         Row(
           children: [
             Text(
@@ -785,17 +825,64 @@ class _RecentTransactions extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            Text(
-              'See all',
-              style: TextStyle(
-                color: T.accent,
-                fontSize: R.fs(13),
-                fontWeight: FontWeight.w600,
+            GestureDetector(
+              onTap: () => setState(() => _showAll = !_showAll),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                child: Text(
+                  _showAll ? 'Show less' : 'See all',
+                  key: ValueKey(_showAll),
+                  style: TextStyle(
+                    color: T.accent,
+                    fontSize: R.fs(13),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
           ],
         ),
         SizedBox(height: R.p(12)),
+
+        // ── Tab Switcher ─────────────────────────────────────────
+        Container(
+          decoration: BoxDecoration(
+            color: T.surface,
+            borderRadius: BorderRadius.circular(R.r(12)),
+            border: Border.all(color: T.border, width: 1),
+          ),
+          padding: EdgeInsets.all(R.p(4)),
+          child: Row(
+            children: [
+              _TabItem(
+                label: 'All',
+                count: dn.recentTxns.length,
+                active: _tab == 0,
+                onTap: () => _switchTab(0),
+                color: T.accent,
+              ),
+              SizedBox(width: R.p(4)),
+              _TabItem(
+                label: 'Income',
+                count: dn.incomeTxns.length,
+                active: _tab == 1,
+                onTap: () => _switchTab(1),
+                color: T.green,
+              ),
+              SizedBox(width: R.p(4)),
+              _TabItem(
+                label: 'Expense',
+                count: dn.expenseTxns.length,
+                active: _tab == 2,
+                onTap: () => _switchTab(2),
+                color: T.red,
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: R.p(10)),
+
+        // ── List card ────────────────────────────────────────────
         AnimatedContainer(
           duration: const Duration(milliseconds: 320),
           decoration: BoxDecoration(
@@ -810,170 +897,370 @@ class _RecentTransactions extends StatelessWidget {
               ),
             ],
           ),
-          child: isLoading
-              ? Padding(
-                  padding: EdgeInsets.all(R.p(20)),
-                  child: Column(
-                    children: List.generate(
-                      4,
-                      (i) => Padding(
-                        padding: EdgeInsets.only(bottom: R.p(16)),
-                        child: Row(
-                          children: [
-                            _Shimmer(
-                              width: R.p(42),
-                              height: R.p(42),
-                              radius: R.r(14),
-                            ),
-                            SizedBox(width: R.p(12)),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _Shimmer(width: R.p(120), height: R.fs(14)),
-                                  SizedBox(height: R.p(6)),
-                                  _Shimmer(width: R.p(80), height: R.fs(11)),
-                                ],
-                              ),
-                            ),
-                          ],
+          child: isLoading && allTxns.isEmpty
+              ? _buildShimmer()
+              : allTxns.isEmpty
+              ? _buildEmpty()
+              : Column(
+                  children: [
+                    _buildList(visibleTxns),
+
+                    // ── "See all N transactions" footer ───────
+                    if (hasMore) ...[
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: R.p(16)),
+                        child: Divider(
+                          color: T.border.withOpacity(0.6),
+                          height: 1,
                         ),
                       ),
-                    ),
-                  ),
-                )
-              : txns.isEmpty
-              ? Padding(
-                  padding: EdgeInsets.all(R.p(24)),
-                  child: Center(
-                    child: Text(
-                      'No transactions yet',
-                      style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
-                    ),
-                  ),
-                )
-              : Column(
-                  children: List.generate(txns.length, (i) {
-                    final t = txns[i];
-                    final c = t.isCredit ? T.green : T.red;
-                    final icon = _iconForCategory(t.category);
-
-                    return Column(
-                      children: [
-                        Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.vertical(
-                              top: i == 0
-                                  ? Radius.circular(R.r(20))
-                                  : Radius.zero,
-                              bottom: i == txns.length - 1
-                                  ? Radius.circular(R.r(20))
-                                  : Radius.zero,
-                            ),
-                            onTap: () {},
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: R.p(16),
-                                vertical: R.p(13),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: R.p(42).clamp(36.0, 48.0),
-                                    height: R.p(42).clamp(36.0, 48.0),
-                                    decoration: BoxDecoration(
-                                      color: c.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(
-                                        R.r(14),
-                                      ),
-                                    ),
-                                    child: Icon(icon, color: c, size: R.fs(19)),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.vertical(
+                            bottom: Radius.circular(R.r(20)),
+                          ),
+                          onTap: () => setState(() => _showAll = true),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: R.p(14)),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'See all ${allTxns.length} transactions',
+                                  style: TextStyle(
+                                    color: T.accent,
+                                    fontSize: R.fs(13),
+                                    fontWeight: FontWeight.w600,
                                   ),
-                                  SizedBox(width: R.p(12)),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          t.title,
-                                          style: TextStyle(
-                                            color: T.textPrimary,
-                                            fontSize: R.fs(14),
-                                            fontWeight: FontWeight.w600,
-                                            letterSpacing: -0.2,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        SizedBox(height: R.p(3)),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              t.category,
-                                              style: TextStyle(
-                                                color: T.textMuted,
-                                                fontSize: R.fs(11),
-                                              ),
-                                            ),
-                                            SizedBox(width: R.p(6)),
-                                            Container(
-                                              width: 3,
-                                              height: 3,
-                                              decoration: BoxDecoration(
-                                                color: T.textMuted,
-                                                shape: BoxShape.circle,
-                                              ),
-                                            ),
-                                            SizedBox(width: R.p(6)),
-                                            Text(
-                                              t.relativeDate,
-                                              style: TextStyle(
-                                                color: T.textMuted,
-                                                fontSize: R.fs(11),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  SizedBox(width: R.p(8)),
-                                  Text(
-                                    t.formattedAmount,
-                                    style: TextStyle(
-                                      color: c,
-                                      fontSize: R.fs(14),
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: -0.3,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                                SizedBox(width: R.p(4)),
+                                Icon(
+                                  Icons.keyboard_arrow_down_rounded,
+                                  color: T.accent,
+                                  size: R.fs(16),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                        if (i < txns.length - 1)
-                          Padding(
-                            padding: EdgeInsets.symmetric(horizontal: R.p(16)),
-                            child: Divider(
-                              color: T.border.withOpacity(0.6),
-                              height: 1,
+                      ),
+                    ],
+
+                    // ── "Show less" footer when fully expanded ─
+                    if (_showAll && allTxns.length > _previewCount) ...[
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: R.p(16)),
+                        child: Divider(
+                          color: T.border.withOpacity(0.6),
+                          height: 1,
+                        ),
+                      ),
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.vertical(
+                            bottom: Radius.circular(R.r(20)),
+                          ),
+                          onTap: () => setState(() => _showAll = false),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: R.p(14)),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Show less',
+                                  style: TextStyle(
+                                    color: T.textSecondary,
+                                    fontSize: R.fs(13),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                SizedBox(width: R.p(4)),
+                                Icon(
+                                  Icons.keyboard_arrow_up_rounded,
+                                  color: T.textSecondary,
+                                  size: R.fs(16),
+                                ),
+                              ],
                             ),
                           ),
-                      ],
-                    );
-                  }),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
         ),
       ],
     );
   }
+
+  Widget _buildShimmer() {
+    return Padding(
+      padding: EdgeInsets.all(R.p(20)),
+      child: Column(
+        children: List.generate(
+          _previewCount,
+          (i) => Padding(
+            padding: EdgeInsets.only(bottom: R.p(16)),
+            child: Row(
+              children: [
+                _Shimmer(width: R.p(42), height: R.p(42), radius: R.r(14)),
+                SizedBox(width: R.p(12)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _Shimmer(width: R.p(120), height: R.fs(14)),
+                      SizedBox(height: R.p(6)),
+                      _Shimmer(width: R.p(80), height: R.fs(11)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmpty() {
+    final label = _tab == 1
+        ? 'No income transactions'
+        : _tab == 2
+        ? 'No expense transactions'
+        : 'No transactions yet';
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: R.p(32)),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              _tab == 1
+                  ? Icons.account_balance_outlined
+                  : _tab == 2
+                  ? Icons.receipt_long_outlined
+                  : Icons.inbox_outlined,
+              color: T.textMuted,
+              size: R.fs(32),
+            ),
+            SizedBox(height: R.p(10)),
+            Text(
+              label,
+              style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildList(List<TransactionModel> txns) {
+    return Column(
+      children: List.generate(txns.length, (i) {
+        final t = txns[i];
+        final c = t.isCredit ? T.green : T.red;
+        final icon = _iconForCategory(t.category);
+
+        return Column(
+          children: [
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.vertical(
+                  top: i == 0 ? Radius.circular(R.r(20)) : Radius.zero,
+                  bottom: Radius.zero,
+                ),
+                onTap: () {},
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: R.p(16),
+                    vertical: R.p(13),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: R.p(42).clamp(36.0, 48.0),
+                        height: R.p(42).clamp(36.0, 48.0),
+                        decoration: BoxDecoration(
+                          color: c.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(R.r(14)),
+                        ),
+                        child: Icon(icon, color: c, size: R.fs(19)),
+                      ),
+                      SizedBox(width: R.p(12)),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              t.title,
+                              style: TextStyle(
+                                color: T.textPrimary,
+                                fontSize: R.fs(14),
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: -0.2,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: R.p(3)),
+                            Row(
+                              children: [
+                                Text(
+                                  t.category,
+                                  style: TextStyle(
+                                    color: T.textMuted,
+                                    fontSize: R.fs(11),
+                                  ),
+                                ),
+                                SizedBox(width: R.p(6)),
+                                Container(
+                                  width: 3,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: T.textMuted,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                SizedBox(width: R.p(6)),
+                                Text(
+                                  t.relativeDate,
+                                  style: TextStyle(
+                                    color: T.textMuted,
+                                    fontSize: R.fs(11),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(width: R.p(8)),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            t.formattedAmount,
+                            style: TextStyle(
+                              color: c,
+                              fontSize: R.fs(14),
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          SizedBox(height: R.p(3)),
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: R.p(6),
+                              vertical: R.p(2),
+                            ),
+                            decoration: BoxDecoration(
+                              color: c.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(R.r(4)),
+                            ),
+                            child: Text(
+                              t.isCredit ? 'IN' : 'OUT',
+                              style: TextStyle(
+                                color: c,
+                                fontSize: R.fs(9),
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (i < txns.length - 1)
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: R.p(16)),
+                child: Divider(color: T.border.withOpacity(0.6), height: 1),
+              ),
+          ],
+        );
+      }),
+    );
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SHARED WIDGETS
+// TAB ITEM
 // ═══════════════════════════════════════════════════════════════
+class _TabItem extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool active;
+  final VoidCallback onTap;
+  final Color color;
+
+  const _TabItem({
+    required this.label,
+    required this.count,
+    required this.active,
+    required this.onTap,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.symmetric(vertical: R.p(8)),
+          decoration: BoxDecoration(
+            color: active ? color.withOpacity(0.14) : Colors.transparent,
+            borderRadius: BorderRadius.circular(R.r(9)),
+            border: active
+                ? Border.all(color: color.withOpacity(0.35), width: 1)
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: active ? color : T.textSecondary,
+                  fontSize: R.fs(12),
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              SizedBox(width: R.p(5)),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: R.p(5),
+                  vertical: R.p(1),
+                ),
+                decoration: BoxDecoration(
+                  color: active
+                      ? color.withOpacity(0.18)
+                      : T.border.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(R.r(20)),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: active ? color : T.textMuted,
+                    fontSize: R.fs(10),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _Chip extends StatelessWidget {
   final String label;
