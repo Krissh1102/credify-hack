@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState } from "react"; // REMOVED: Unused Suspense and BarLoader imports
-import { DashboardSidebar } from "@/components/DashboardSideBar";
+import React, { useState } from "react";
 
 export default function DashboardLayout({ children }) {
   const [open, setOpen] = useState(true);

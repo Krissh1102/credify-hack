@@ -80,7 +80,7 @@ export default function DebtOverviewPage() {
 
         const loansJson = await loansRes.json();
         const profileJson = await profileRes.json();
-        
+
         if (insightsRes.ok) {
           const insightsJson = await insightsRes.json();
           setInsights(insightsJson);
