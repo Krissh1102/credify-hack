@@ -7,17 +7,34 @@ export async function PATCH(req, { params }) {
   const { id } = await params;
   const data = await req.json();
 
-  // Only increment currentAmount if depositDelta is present
-  let updateData = { ...data };
+  // Build the update payload
+  let updateData = {};
+
+  // Update name / targetAmount / notes if provided
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.targetAmount !== undefined) updateData.targetAmount = data.targetAmount;
+  if (data.notes !== undefined) updateData.notes = data.notes;
+
+  // Handle balance change via depositDelta (positive = deposit, negative = withdraw)
   if (typeof data.depositDelta === "number") {
     const existing = await db.savingsJar.findUnique({
       where: { id, userId: user.id },
     });
     if (existing) {
-      updateData.currentAmount =
-        Number(existing.currentAmount) + Number(data.depositDelta);
+      const newAmount = Math.max(0, Number(existing.currentAmount) + data.depositDelta);
+      updateData.currentAmount = newAmount;
+
+      // Prepend the new transaction entry and keep only the last 20
+      const existingHistory = Array.isArray(existing.recentDeposits)
+        ? existing.recentDeposits
+        : [];
+      const newEntry = {
+        id: Date.now(),
+        amount: data.depositDelta,
+        date: new Date().toISOString(),
+      };
+      updateData.recentDeposits = [newEntry, ...existingHistory].slice(0, 20);
     }
-    delete updateData.depositDelta;
   }
 
   const jar = await db.savingsJar.update({

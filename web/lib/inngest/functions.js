@@ -5,10 +5,10 @@ import EmailTemplate from "@/email/template";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const checkBudgetAlert = inngest.createFunction(
-  { name: "Check Budget Alerts" },
+  { id: "check-budget-alerts", name: "Check Budget Alerts" },
   { cron: "0 */6 * * *" },
   async ({ step }) => {
-    const budget = await step.run("fetch-budget", async () => {
+    const budgets = await step.run("fetch-budget", async () => {
       return await db.budget.findMany({
         include: {
           user: {
@@ -46,7 +46,7 @@ export const checkBudgetAlert = inngest.createFunction(
           where: {
             userId: budget.userId,
             accountId: defaultAccount.id,
-            type: "EXPENSES",
+            type: "EXPENSE",
             date: {
               gte: startOfMonth,
               lte: endOfMonth,
@@ -72,7 +72,7 @@ export const checkBudgetAlert = inngest.createFunction(
             to: budget.user.email,
             subject: `Budget Alert for ${defaultAccount.name}`,
             react: EmailTemplate({
-              username: budget.user.name,
+              userName: budget.user.name,
               type: "budget-alert",
               data: {
                 percentageUsed,
@@ -97,7 +97,7 @@ export const checkBudgetAlert = inngest.createFunction(
 function isNewMonth(lastAlertDate, currentDate) {
   return (
     lastAlertDate.getMonth() !== currentDate.getMonth() ||
-    lastAlertDate.getFullYear() !== cuurentDate.getFullYear()
+    lastAlertDate.getFullYear() !== currentDate.getFullYear()
   );
 }
 
