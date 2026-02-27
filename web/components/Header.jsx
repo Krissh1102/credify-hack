@@ -23,6 +23,7 @@ import {
   Moon,
 } from "lucide-react";
 import { IconMenu2 } from "@tabler/icons-react";
+import TranslateWidget from "./TranslateWidget";
 
 const Header = ({ setOpen }) => {
 
@@ -86,6 +87,7 @@ const Header = ({ setOpen }) => {
               </Button>
             </Link>
           </SignedIn>
+          <TranslateWidget />
 
           <SignedOut>
             <SignInButton forceRedirectUrl="/dashboard">
