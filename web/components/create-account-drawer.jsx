@@ -26,6 +26,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { createAccount } from "@/actions/dashboard";
+import { accountSchema } from "@/lib/schemas";
+
 
 export function CreateAccountDrawer({ children }) {
   const [open, setOpen] = useState(false);
@@ -37,7 +39,7 @@ export function CreateAccountDrawer({ children }) {
     watch,
     reset,
   } = useForm({
-    resolver: zodResolver(AccountSchema),
+    resolver: zodResolver(accountSchema),
     defaultValues: {
       name: "",
       type: "CURRENT",
