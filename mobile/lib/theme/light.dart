@@ -5,8 +5,8 @@ class LightTokens {
   static const surface = Color(0xFFFFFFFF);
   static const elevated = Color(0xFFF0F0F8);
   static const border = Color(0xFFE2E2EE);
-  static const accent = Color(0xFFD6AE7B); // was #F9B16E
-  static const accentSoft = Color.fromARGB(255, 254, 194, 110); // was #F68080
+  static const accent = Color.fromARGB(255, 237, 169, 79); // was #F9B16E
+  static const accentSoft = Color.fromARGB(255, 240, 196, 135); // was #F68080
   static const green = Color(0xFF16A77C);
   static const red = Color(0xFFE8445A);
   static const gold = Color(0xFFD4920A);

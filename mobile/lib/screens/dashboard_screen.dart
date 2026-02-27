@@ -1,14 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:mobile/theme/dark.dart';
+import 'package:mobile/provider/dashboard_provider.dart';
+
 import 'package:mobile/theme/theme.dart';
 
-// ═══════════════════════════════════════════════════════════════
-// DASHBOARD SCREEN
-// Pure content screen — no nav bar. Hosted inside HomeScreen's
-// IndexedStack at index 0.
-// ═══════════════════════════════════════════════════════════════
+
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -35,6 +32,11 @@ class _DashboardScreenState extends State<DashboardScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
     _ac.forward();
+
+    // Load dashboard data
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      DashboardNotifier().load();
+    });
   }
 
   @override
@@ -53,124 +55,60 @@ class _DashboardScreenState extends State<DashboardScreen>
       opacity: _fade,
       child: SlideTransition(
         position: _slide,
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics(),
-          ),
-          slivers: [
-            SliverPadding(
-              padding: EdgeInsets.fromLTRB(R.p(20), R.p(10), R.p(20), R.p(24)),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _AccountCard(),
-                  SizedBox(height: R.p(16)),
-                  _QuickStats(),
-                  SizedBox(height: R.p(16)),
-                  _CashflowCard(),
-                  SizedBox(height: R.p(16)),
-                  _ExpenseRow(),
-                  SizedBox(height: R.p(16)),
-                  _RecentTransactions(),
-                  SizedBox(height: R.p(8)),
-                ]),
+        child: ListenableBuilder(
+          listenable: DashboardNotifier(),
+          builder: (context, _) {
+            final dn = DashboardNotifier();
+            return CustomScrollView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// THEME TOGGLE
-// ═══════════════════════════════════════════════════════════════
-class _ThemeToggle extends StatelessWidget {
-  const _ThemeToggle();
-
-  @override
-  Widget build(BuildContext context) {
-    final notifier = ThemeProvider.of(context);
-    final isDark = notifier.isDark;
-    final w = R.p(52).clamp(46.0, 58.0);
-    final h = R.p(28).clamp(24.0, 32.0);
-    final knobSize = h - 6;
-
-    return GestureDetector(
-      onTap: notifier.toggle,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        width: w,
-        height: h,
-        padding: const EdgeInsets.all(3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(h),
-          gradient: isDark
-              ? const LinearGradient(
-                  colors: [DarkTokens.accent, DarkTokens.accentSoft],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                )
-              : const LinearGradient(
-                  colors: [Color(0xFFFFD060), Color(0xFFFF9940)],
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                ),
-          boxShadow: [
-            BoxShadow(
-              color: (isDark ? DarkTokens.accent : const Color(0xFFFFAA30))
-                  .withOpacity(0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Stack(
-          children: [
-            AnimatedAlign(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOutBack,
-              alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                width: knobSize,
-                height: knobSize,
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black26,
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 200),
-                    child: Icon(
-                      isDark ? Icons.nightlight_round : Icons.wb_sunny_rounded,
-                      key: ValueKey(isDark),
-                      size: knobSize * 0.55,
-                      color: isDark
-                          ? DarkTokens.accent
-                          : const Color(0xFFFF9940),
-                    ),
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    R.p(20),
+                    R.p(10),
+                    R.p(20),
+                    R.p(24),
+                  ),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      _AccountCard(dn: dn),
+                      SizedBox(height: R.p(16)),
+                      _QuickStats(dn: dn),
+                      SizedBox(height: R.p(16)),
+                      _CashflowCard(dn: dn),
+                      SizedBox(height: R.p(16)),
+                      _ExpenseRow(dn: dn),
+                      SizedBox(height: R.p(16)),
+                      _RecentTransactions(dn: dn),
+                      SizedBox(height: R.p(8)),
+                    ]),
                   ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ACCOUNT CARD
+// ═══════════════════════════════════════════════════════════════
 class _AccountCard extends StatelessWidget {
+  final DashboardNotifier dn;
+  const _AccountCard({required this.dn});
+
   @override
   Widget build(BuildContext context) {
+    final account = dn.account;
+    final isLoading = dn.loading && account == null;
+    final pct = dn.monthOverMonthPct;
+    final isPositive = pct >= 0;
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 320),
       decoration: BoxDecoration(
@@ -227,7 +165,7 @@ class _AccountCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _Chip('SAVINGS', T.accent),
+                    _Chip(account?.type ?? 'ACCOUNT', T.accent),
                     const Spacer(),
                     Icon(
                       Icons.more_horiz_rounded,
@@ -237,91 +175,111 @@ class _AccountCard extends StatelessWidget {
                   ],
                 ),
                 SizedBox(height: R.p(14)),
-                Text(
-                  "Ved's Main Account",
-                  style: TextStyle(
-                    color: T.textSecondary,
-                    fontSize: R.fs(12),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+                // Account name
+                isLoading
+                    ? _Shimmer(width: R.p(140), height: R.fs(12))
+                    : Text(
+                        account?.name ?? '—',
+                        style: TextStyle(
+                          color: T.textSecondary,
+                          fontSize: R.fs(12),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                 SizedBox(height: R.p(4)),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '₹1,24,857.40',
-                    style: TextStyle(
-                      color: T.textPrimary,
-                      fontSize: R.fs(34),
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -1.5,
-                    ),
-                  ),
-                ),
-                SizedBox(height: R.p(6)),
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: R.p(6),
-                        vertical: R.p(3),
-                      ),
-                      decoration: BoxDecoration(
-                        color: T.green.withOpacity(0.14),
-                        borderRadius: BorderRadius.circular(R.r(6)),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.arrow_upward_rounded,
-                            color: T.green,
-                            size: R.fs(11),
+                // Balance
+                isLoading
+                    ? _Shimmer(width: R.p(200), height: R.fs(34))
+                    : FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          dn.formattedBalance,
+                          style: TextStyle(
+                            color: T.textPrimary,
+                            fontSize: R.fs(34),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -1.5,
                           ),
-                          SizedBox(width: R.p(2)),
+                        ),
+                      ),
+                SizedBox(height: R.p(6)),
+                // Month-over-month badge
+                isLoading
+                    ? _Shimmer(width: R.p(80), height: R.fs(11) + 8)
+                    : Row(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: R.p(6),
+                              vertical: R.p(3),
+                            ),
+                            decoration: BoxDecoration(
+                              color: (isPositive ? T.red : T.green).withOpacity(
+                                0.14,
+                              ),
+                              borderRadius: BorderRadius.circular(R.r(6)),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  isPositive
+                                      ? Icons.arrow_upward_rounded
+                                      : Icons.arrow_downward_rounded,
+                                  color: isPositive ? T.red : T.green,
+                                  size: R.fs(11),
+                                ),
+                                SizedBox(width: R.p(2)),
+                                Text(
+                                  '${isPositive ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                  style: TextStyle(
+                                    color: isPositive ? T.red : T.green,
+                                    fontSize: R.fs(11),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(width: R.p(8)),
                           Text(
-                            '+3.2%',
+                            'expenses vs last month',
                             style: TextStyle(
-                              color: T.green,
+                              color: T.textMuted,
                               fontSize: R.fs(11),
-                              fontWeight: FontWeight.w700,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    SizedBox(width: R.p(8)),
-                    Text(
-                      'vs last month',
-                      style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
-                    ),
-                  ],
-                ),
                 SizedBox(height: R.p(18)),
                 Divider(color: T.border.withOpacity(0.7), height: 1),
                 SizedBox(height: R.p(14)),
+                // Income / Expense / Saved
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _MiniStat(
                       'Income',
-                      '₹38,200',
+                      _fmt(dn.totalIncome),
                       T.green,
                       Icons.arrow_downward_rounded,
+                      isLoading,
                     ),
                     Container(width: 1, height: 32, color: T.border),
                     _MiniStat(
                       'Expenses',
-                      '₹12,450',
+                      _fmt(dn.totalExpense),
                       T.red,
                       Icons.arrow_upward_rounded,
+                      isLoading,
                     ),
                     Container(width: 1, height: 32, color: T.border),
                     _MiniStat(
                       'Saved',
-                      '₹25,750',
+                      _fmt(dn.totalSaved),
                       T.gold,
                       Icons.savings_outlined,
+                      isLoading,
                     ),
                   ],
                 ),
@@ -362,94 +320,55 @@ class _AccountCard extends StatelessWidget {
       ),
     );
   }
-}
 
-class _Chip extends StatelessWidget {
-  final String label;
-  final Color color;
-  const _Chip(this.label, this.color);
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: R.p(10), vertical: R.p(4)),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.14),
-        borderRadius: BorderRadius.circular(R.r(20)),
-        border: Border.all(color: color.withOpacity(0.4), width: 1),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: R.fs(10),
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniStat extends StatelessWidget {
-  final String label, value;
-  final Color color;
-  final IconData icon;
-  const _MiniStat(this.label, this.value, this.color, this.icon);
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: color, size: R.fs(11)),
-              SizedBox(width: R.p(3)),
-              Text(
-                label,
-                style: TextStyle(
-                  color: T.textSecondary,
-                  fontSize: R.fs(10),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: R.p(4)),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontSize: R.fs(13),
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.3,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  static String _fmt(double v) {
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(1)}L';
+    if (v >= 1000) {
+      final s = v.toStringAsFixed(0);
+      final buf = StringBuffer();
+      int rem = s.length % 3;
+      if (rem != 0) buf.write(s.substring(0, rem));
+      for (int i = rem; i < s.length; i += 3) {
+        if (buf.isNotEmpty) buf.write(',');
+        buf.write(s.substring(i, i + 3));
+      }
+      return '₹$buf';
+    }
+    return '₹${v.toStringAsFixed(0)}';
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// QUICK STATS PILLS
+// QUICK STATS
 // ═══════════════════════════════════════════════════════════════
 class _QuickStats extends StatelessWidget {
+  final DashboardNotifier dn;
+  const _QuickStats({required this.dn});
+
   @override
   Widget build(BuildContext context) {
+    // These can be extended later to pull from loans/budgets tables
     final stats = [
-      {'label': 'EMI Due', 'value': '₹3,200', 'sub': '5 days left', 'c': T.red},
-      {'label': 'Goal', 'value': '68%', 'sub': 'Complete', 'c': T.green},
       {
-        'label': 'Invest',
-        'value': '₹5,000',
+        'label': 'Expenses',
+        'value': dn.loading ? '—' : _fmt(dn.totalExpense),
+        'sub': 'This month',
+        'c': T.red,
+      },
+      {
+        'label': 'Income',
+        'value': dn.loading ? '—' : _fmt(dn.totalIncome),
+        'sub': 'This month',
+        'c': T.green,
+      },
+      {
+        'label': 'Saved',
+        'value': dn.loading ? '—' : _fmt(dn.totalSaved),
         'sub': 'This month',
         'c': T.accent,
       },
     ];
+
     return Row(
       children: List.generate(stats.length, (i) {
         final s = stats[i];
@@ -486,19 +405,21 @@ class _QuickStats extends StatelessWidget {
                   ),
                 ),
                 SizedBox(height: R.p(5)),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    s['value'] as String,
-                    style: TextStyle(
-                      color: c,
-                      fontSize: R.fs(16),
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                ),
+                dn.loading
+                    ? _Shimmer(width: double.infinity, height: R.fs(16))
+                    : FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          s['value'] as String,
+                          style: TextStyle(
+                            color: c,
+                            fontSize: R.fs(16),
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                      ),
                 SizedBox(height: R.p(3)),
                 Text(
                   s['sub'] as String,
@@ -511,19 +432,37 @@ class _QuickStats extends StatelessWidget {
       }),
     );
   }
+
+  static String _fmt(double v) {
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(1)}L';
+    if (v >= 1000) {
+      final s = v.toStringAsFixed(0);
+      final buf = StringBuffer();
+      int rem = s.length % 3;
+      if (rem != 0) buf.write(s.substring(0, rem));
+      for (int i = rem; i < s.length; i += 3) {
+        if (buf.isNotEmpty) buf.write(',');
+        buf.write(s.substring(i, i + 3));
+      }
+      return '₹$buf';
+    }
+    return '₹${v.toStringAsFixed(0)}';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // CASHFLOW CHART
 // ═══════════════════════════════════════════════════════════════
 class _CashflowCard extends StatelessWidget {
-  static const _months = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'];
-  static const _expenses = [0.60, 0.80, 0.50, 0.70, 0.40, 0.55];
-  static const _credits = [0.90, 0.70, 0.85, 0.60, 0.95, 0.75];
+  final DashboardNotifier dn;
+  const _CashflowCard({required this.dn});
 
   @override
   Widget build(BuildContext context) {
     final chartH = R.h(16).clamp(110.0, 160.0);
+    final flows = dn.monthlyFlow;
+    final isLoading = dn.loading && flows.isEmpty;
+
     return _SCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -546,45 +485,55 @@ class _CashflowCard extends StatelessWidget {
           SizedBox(height: R.p(18)),
           SizedBox(
             height: chartH,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: List.generate(
-                _months.length,
-                (i) => Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _GlowBar(
-                            frac: _expenses[i],
-                            color: T.red,
-                            chartH: chartH,
+            child: isLoading
+                ? _Shimmer(width: double.infinity, height: chartH)
+                : flows.isEmpty
+                ? Center(
+                    child: Text(
+                      'No data',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+                    ),
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: flows
+                        .map(
+                          (f) => Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    _GlowBar(
+                                      frac: f.expenseFrac,
+                                      color: T.red,
+                                      chartH: chartH,
+                                    ),
+                                    SizedBox(width: R.p(3)),
+                                    _GlowBar(
+                                      frac: f.creditFrac,
+                                      color: T.green,
+                                      chartH: chartH,
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(height: R.p(7)),
+                                Text(
+                                  f.month,
+                                  style: TextStyle(
+                                    color: T.textMuted,
+                                    fontSize: R.fs(10),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          SizedBox(width: R.p(3)),
-                          _GlowBar(
-                            frac: _credits[i],
-                            color: T.green,
-                            chartH: chartH,
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: R.p(7)),
-                      Text(
-                        _months[i],
-                        style: TextStyle(
-                          color: T.textMuted,
-                          fontSize: R.fs(10),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                        )
+                        .toList(),
                   ),
-                ),
-              ),
-            ),
           ),
           SizedBox(height: R.p(14)),
           Row(
@@ -594,6 +543,505 @@ class _CashflowCard extends StatelessWidget {
               _LDot(T.green, 'Credit'),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// EXPENSE PIE CHART
+// ═══════════════════════════════════════════════════════════════
+
+// Colors to cycle through for categories
+const _kCatColors = [
+  Color(0xFF6C63FF), // accent-ish
+  Color(0xFF9C8FFF), // accent soft
+  Color(0xFFF5A623), // gold
+  Color(0xFFFF5B5B), // red
+  Color(0xFF4CAF82), // green
+  Color(0xFF26C6DA), // teal
+  Color(0xFFFF7043), // orange
+];
+
+class _ExpenseRow extends StatelessWidget {
+  final DashboardNotifier dn;
+  const _ExpenseRow({required this.dn});
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = dn.expenseCategories;
+    final isLoading = dn.loading && cats.isEmpty;
+    final pieSize = R.w(36).clamp(120.0, 160.0);
+
+    // Build segments with colors
+    final segs = List.generate(
+      cats.length > 5 ? 5 : cats.length,
+      (i) => _Seg(
+        cats[i].label,
+        cats[i].fraction,
+        _kCatColors[i % _kCatColors.length],
+      ),
+    );
+
+    final totalExpStr = dn.loading ? '—' : '₹${_fmtInt(dn.totalExpense)}';
+
+    return _SCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Monthly Expense',
+                style: TextStyle(
+                  color: T.textPrimary,
+                  fontSize: R.fs(16),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${_monthName(DateTime.now().month)} ${DateTime.now().year}',
+                style: TextStyle(color: T.textSecondary, fontSize: R.fs(12)),
+              ),
+            ],
+          ),
+          SizedBox(height: R.p(18)),
+          isLoading
+              ? _Shimmer(width: double.infinity, height: pieSize)
+              : cats.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: R.p(20)),
+                    child: Text(
+                      'No expenses this month',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+                    ),
+                  ),
+                )
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: pieSize,
+                      height: pieSize,
+                      child: CustomPaint(
+                        painter: _PiePainter(segs),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              FittedBox(
+                                child: Text(
+                                  totalExpStr,
+                                  style: TextStyle(
+                                    color: T.textPrimary,
+                                    fontSize: R.fs(12),
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.5,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                'Total',
+                                style: TextStyle(
+                                  color: T.textSecondary,
+                                  fontSize: R.fs(9),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: R.p(20)),
+                    Expanded(
+                      child: Column(
+                        children: segs
+                            .map(
+                              (s) => Padding(
+                                padding: EdgeInsets.only(bottom: R.p(9)),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: R.p(9),
+                                      height: R.p(9),
+                                      decoration: BoxDecoration(
+                                        color: s.color,
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    ),
+                                    SizedBox(width: R.p(8)),
+                                    Expanded(
+                                      child: Text(
+                                        s.label,
+                                        style: TextStyle(
+                                          color: T.textSecondary,
+                                          fontSize: R.fs(12),
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${(s.value * 100).toInt()}%',
+                                      style: TextStyle(
+                                        color: s.color,
+                                        fontSize: R.fs(12),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                ),
+        ],
+      ),
+    );
+  }
+
+  static String _fmtInt(double v) {
+    final s = v.toStringAsFixed(0);
+    final buf = StringBuffer();
+    int rem = s.length % 3;
+    if (rem != 0) buf.write(s.substring(0, rem));
+    for (int i = rem; i < s.length; i += 3) {
+      if (buf.isNotEmpty) buf.write(',');
+      buf.write(s.substring(i, i + 3));
+    }
+    return buf.toString();
+  }
+
+  static String _monthName(int m) => const [
+    '',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][m];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RECENT TRANSACTIONS
+// ═══════════════════════════════════════════════════════════════
+class _RecentTransactions extends StatelessWidget {
+  final DashboardNotifier dn;
+  const _RecentTransactions({required this.dn});
+
+  static IconData _iconForCategory(String cat) {
+    final c = cat.toLowerCase();
+    if (c.contains('food') || c.contains('dining') || c.contains('restaurant'))
+      return Icons.fastfood_rounded;
+    if (c.contains('income') || c.contains('salary') || c.contains('credit'))
+      return Icons.account_balance_rounded;
+    if (c.contains('transport') || c.contains('travel') || c.contains('cab'))
+      return Icons.directions_car_rounded;
+    if (c.contains('subscri') || c.contains('stream'))
+      return Icons.play_circle_rounded;
+    if (c.contains('grocer') || c.contains('super'))
+      return Icons.local_grocery_store_rounded;
+    if (c.contains('shop') || c.contains('cloth'))
+      return Icons.shopping_bag_rounded;
+    if (c.contains('medical') || c.contains('health'))
+      return Icons.local_hospital_rounded;
+    if (c.contains('invest')) return Icons.trending_up_rounded;
+    if (c.contains('bill') || c.contains('util'))
+      return Icons.receipt_long_rounded;
+    return Icons.currency_rupee_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final txns = dn.recentTxns;
+    final isLoading = dn.loading && txns.isEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Recent Transactions',
+              style: TextStyle(
+                color: T.textPrimary,
+                fontSize: R.fs(16),
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.4,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              'See all',
+              style: TextStyle(
+                color: T.accent,
+                fontSize: R.fs(13),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: R.p(12)),
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 320),
+          decoration: BoxDecoration(
+            color: T.surface,
+            borderRadius: BorderRadius.circular(R.r(20)),
+            border: Border.all(color: T.border, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: T.border.withOpacity(0.5),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: isLoading
+              ? Padding(
+                  padding: EdgeInsets.all(R.p(20)),
+                  child: Column(
+                    children: List.generate(
+                      4,
+                      (i) => Padding(
+                        padding: EdgeInsets.only(bottom: R.p(16)),
+                        child: Row(
+                          children: [
+                            _Shimmer(
+                              width: R.p(42),
+                              height: R.p(42),
+                              radius: R.r(14),
+                            ),
+                            SizedBox(width: R.p(12)),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _Shimmer(width: R.p(120), height: R.fs(14)),
+                                  SizedBox(height: R.p(6)),
+                                  _Shimmer(width: R.p(80), height: R.fs(11)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : txns.isEmpty
+              ? Padding(
+                  padding: EdgeInsets.all(R.p(24)),
+                  child: Center(
+                    child: Text(
+                      'No transactions yet',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+                    ),
+                  ),
+                )
+              : Column(
+                  children: List.generate(txns.length, (i) {
+                    final t = txns[i];
+                    final c = t.isCredit ? T.green : T.red;
+                    final icon = _iconForCategory(t.category);
+
+                    return Column(
+                      children: [
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.vertical(
+                              top: i == 0
+                                  ? Radius.circular(R.r(20))
+                                  : Radius.zero,
+                              bottom: i == txns.length - 1
+                                  ? Radius.circular(R.r(20))
+                                  : Radius.zero,
+                            ),
+                            onTap: () {},
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: R.p(16),
+                                vertical: R.p(13),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: R.p(42).clamp(36.0, 48.0),
+                                    height: R.p(42).clamp(36.0, 48.0),
+                                    decoration: BoxDecoration(
+                                      color: c.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(
+                                        R.r(14),
+                                      ),
+                                    ),
+                                    child: Icon(icon, color: c, size: R.fs(19)),
+                                  ),
+                                  SizedBox(width: R.p(12)),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          t.title,
+                                          style: TextStyle(
+                                            color: T.textPrimary,
+                                            fontSize: R.fs(14),
+                                            fontWeight: FontWeight.w600,
+                                            letterSpacing: -0.2,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        SizedBox(height: R.p(3)),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              t.category,
+                                              style: TextStyle(
+                                                color: T.textMuted,
+                                                fontSize: R.fs(11),
+                                              ),
+                                            ),
+                                            SizedBox(width: R.p(6)),
+                                            Container(
+                                              width: 3,
+                                              height: 3,
+                                              decoration: BoxDecoration(
+                                                color: T.textMuted,
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            SizedBox(width: R.p(6)),
+                                            Text(
+                                              t.relativeDate,
+                                              style: TextStyle(
+                                                color: T.textMuted,
+                                                fontSize: R.fs(11),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  SizedBox(width: R.p(8)),
+                                  Text(
+                                    t.formattedAmount,
+                                    style: TextStyle(
+                                      color: c,
+                                      fontSize: R.fs(14),
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (i < txns.length - 1)
+                          Padding(
+                            padding: EdgeInsets.symmetric(horizontal: R.p(16)),
+                            child: Divider(
+                              color: T.border.withOpacity(0.6),
+                              height: 1,
+                            ),
+                          ),
+                      ],
+                    );
+                  }),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SHARED WIDGETS
+// ═══════════════════════════════════════════════════════════════
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _Chip(this.label, this.color);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: R.p(10), vertical: R.p(4)),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(R.r(20)),
+        border: Border.all(color: color.withOpacity(0.4), width: 1),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: R.fs(10),
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniStat extends StatelessWidget {
+  final String label, value;
+  final Color color;
+  final IconData icon;
+  final bool loading;
+  const _MiniStat(this.label, this.value, this.color, this.icon, this.loading);
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: R.fs(11)),
+              SizedBox(width: R.p(3)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: T.textSecondary,
+                  fontSize: R.fs(10),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: R.p(4)),
+          loading
+              ? _Shimmer(width: R.p(50), height: R.fs(13))
+              : FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: R.fs(13),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ),
         ],
       ),
     );
@@ -659,130 +1107,6 @@ class _LDot extends StatelessWidget {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// EXPENSE BREAKDOWN PIE
-// ═══════════════════════════════════════════════════════════════
-class _ExpenseRow extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final segs = [
-      _Seg('Food', 0.30, T.accent),
-      _Seg('Transport', 0.20, T.accentSoft),
-      _Seg('Shopping', 0.25, T.gold),
-      _Seg('Bills', 0.15, T.red),
-      _Seg('Others', 0.10, T.textSecondary),
-    ];
-    final pieSize = R.w(36).clamp(120.0, 160.0);
-
-    return _SCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                'Monthly Expense',
-                style: TextStyle(
-                  color: T.textPrimary,
-                  fontSize: R.fs(16),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                'Feb 2026',
-                style: TextStyle(color: T.textSecondary, fontSize: R.fs(12)),
-              ),
-            ],
-          ),
-          SizedBox(height: R.p(18)),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: pieSize,
-                height: pieSize,
-                child: CustomPaint(
-                  painter: _PiePainter(segs),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        FittedBox(
-                          child: Text(
-                            '₹12,450',
-                            style: TextStyle(
-                              color: T.textPrimary,
-                              fontSize: R.fs(12),
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: -0.5,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          'Total',
-                          style: TextStyle(
-                            color: T.textSecondary,
-                            fontSize: R.fs(9),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              SizedBox(width: R.p(20)),
-              Expanded(
-                child: Column(
-                  children: segs
-                      .map(
-                        (s) => Padding(
-                          padding: EdgeInsets.only(bottom: R.p(9)),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: R.p(9),
-                                height: R.p(9),
-                                decoration: BoxDecoration(
-                                  color: s.color,
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                              ),
-                              SizedBox(width: R.p(8)),
-                              Expanded(
-                                child: Text(
-                                  s.label,
-                                  style: TextStyle(
-                                    color: T.textSecondary,
-                                    fontSize: R.fs(12),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '${(s.value * 100).toInt()}%',
-                                style: TextStyle(
-                                  color: s.color,
-                                  fontSize: R.fs(12),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Seg {
   final String label;
   final double value;
@@ -833,224 +1157,6 @@ class _PiePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter _) => true;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// RECENT TRANSACTIONS
-// ═══════════════════════════════════════════════════════════════
-class _TxnData {
-  final String title, category, amount, date;
-  final Color Function() colorFn;
-  final IconData icon;
-  const _TxnData(
-    this.title,
-    this.category,
-    this.amount,
-    this.colorFn,
-    this.icon,
-    this.date,
-  );
-}
-
-class _RecentTransactions extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final txns = [
-      _TxnData(
-        'Swiggy',
-        'Food & Dining',
-        '-₹340',
-        () => T.red,
-        Icons.fastfood_rounded,
-        'Today',
-      ),
-      _TxnData(
-        'Salary Credit',
-        'Income',
-        '+₹38,200',
-        () => T.green,
-        Icons.account_balance_rounded,
-        'Yesterday',
-      ),
-      _TxnData(
-        'Uber',
-        'Transport',
-        '-₹180',
-        () => T.red,
-        Icons.directions_car_rounded,
-        'Yesterday',
-      ),
-      _TxnData(
-        'Netflix',
-        'Subscriptions',
-        '-₹649',
-        () => T.gold,
-        Icons.play_circle_rounded,
-        'Feb 24',
-      ),
-      _TxnData(
-        'Zepto',
-        'Groceries',
-        '-₹520',
-        () => T.accentSoft,
-        Icons.local_grocery_store_rounded,
-        'Feb 23',
-      ),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text(
-              'Recent Transactions',
-              style: TextStyle(
-                color: T.textPrimary,
-                fontSize: R.fs(16),
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.4,
-              ),
-            ),
-            const Spacer(),
-            Text(
-              'See all',
-              style: TextStyle(
-                color: T.accent,
-                fontSize: R.fs(13),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-        SizedBox(height: R.p(12)),
-        AnimatedContainer(
-          duration: const Duration(milliseconds: 320),
-          decoration: BoxDecoration(
-            color: T.surface,
-            borderRadius: BorderRadius.circular(R.r(20)),
-            border: Border.all(color: T.border, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: T.border.withOpacity(0.5),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: List.generate(txns.length, (i) {
-              final t = txns[i];
-              final c = t.colorFn();
-              return Column(
-                children: [
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.vertical(
-                        top: i == 0 ? Radius.circular(R.r(20)) : Radius.zero,
-                        bottom: i == txns.length - 1
-                            ? Radius.circular(R.r(20))
-                            : Radius.zero,
-                      ),
-                      onTap: () {},
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: R.p(16),
-                          vertical: R.p(13),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: R.p(42).clamp(36.0, 48.0),
-                              height: R.p(42).clamp(36.0, 48.0),
-                              decoration: BoxDecoration(
-                                color: c.withOpacity(0.12),
-                                borderRadius: BorderRadius.circular(R.r(14)),
-                              ),
-                              child: Icon(t.icon, color: c, size: R.fs(19)),
-                            ),
-                            SizedBox(width: R.p(12)),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    t.title,
-                                    style: TextStyle(
-                                      color: T.textPrimary,
-                                      fontSize: R.fs(14),
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: -0.2,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  SizedBox(height: R.p(3)),
-                                  Row(
-                                    children: [
-                                      Text(
-                                        t.category,
-                                        style: TextStyle(
-                                          color: T.textMuted,
-                                          fontSize: R.fs(11),
-                                        ),
-                                      ),
-                                      SizedBox(width: R.p(6)),
-                                      Container(
-                                        width: 3,
-                                        height: 3,
-                                        decoration: BoxDecoration(
-                                          color: T.textMuted,
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      SizedBox(width: R.p(6)),
-                                      Text(
-                                        t.date,
-                                        style: TextStyle(
-                                          color: T.textMuted,
-                                          fontSize: R.fs(11),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            SizedBox(width: R.p(8)),
-                            Text(
-                              t.amount,
-                              style: TextStyle(
-                                color: c,
-                                fontSize: R.fs(14),
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (i < txns.length - 1)
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: R.p(16)),
-                      child: Divider(
-                        color: T.border.withOpacity(0.6),
-                        height: 1,
-                      ),
-                    ),
-                ],
-              );
-            }),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// SHARED WIDGETS
-// ═══════════════════════════════════════════════════════════════
 class _SCard extends StatelessWidget {
   final Widget child;
   const _SCard({required this.child});
@@ -1096,6 +1202,53 @@ class _PillBtn extends StatelessWidget {
           color: T.textSecondary,
           fontSize: R.fs(12),
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Animated shimmer placeholder ────────────────────────────
+class _Shimmer extends StatefulWidget {
+  final double width, height;
+  final double? radius;
+  const _Shimmer({required this.width, required this.height, this.radius});
+
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
+
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ac;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ac, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: widget.width,
+        height: widget.height + 2,
+        decoration: BoxDecoration(
+          color: T.border.withOpacity(0.3 + _anim.value * 0.4),
+          borderRadius: BorderRadius.circular(widget.radius ?? 4),
         ),
       ),
     );
