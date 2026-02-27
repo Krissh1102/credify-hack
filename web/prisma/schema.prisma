@@ -1,0 +1,336 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// --- CORE MODELS ---
+
+model User {
+  id          String   @id @default(uuid())
+  clerkUserId String   @unique // clerk user id
+  email       String   @unique
+  name        String?
+  imageUrl    String?
+
+  // Relations
+
+  transactions Transaction[]
+  accounts     Account[]
+  budgets      Budget[]
+  loans        Loan[] // <-- ADDED RELATION
+  investments  Investment[]
+  savingsJars  SavingsJar[]
+  fixedDeposits FixedDeposit[]
+  ppfs         PPF[]
+  bondDetails  BondDetail[]
+  realEstates  RealEstate[]
+  golds        Gold[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Account {
+  id        String      @id @default(uuid())
+  name      String
+  type      AccountType
+  balance   Decimal     @default(0)
+  isDefault Boolean     @default(false)
+
+  // Relations
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Transaction {
+  id                String            @id @default(uuid())
+  type              TransactionType
+  amount            Decimal
+  description       String?
+  date              DateTime
+  category          String
+  receiptUrl        String?
+  isRecurring       Boolean           @default(false)
+  recurringInterval RecurringInterval?
+  nextRecurringDate DateTime?
+  lastProcessed     DateTime?
+  status            TransactionStatus @default(COMPLETED)
+
+  // Relations
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  loanPayment LoanPayment? // <-- ADDED RELATION
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([accountId])
+  @@map("transactions")
+}
+
+model Budget {
+  id            String    @id @default(uuid())
+  amount        Decimal
+  lastAlertSent DateTime?
+
+  // Relations
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("budgets")
+}
+
+
+// --- NEW LOAN MODELS ---
+
+model Loan {
+  id                 String     @id @default(uuid())
+  name               String // e.g., "My Car Loan"
+  lender             String // <-- ADDED: e.g., "HDFC Bank"
+  type               LoanType
+  principalAmount    Decimal
+  outstandingBalance Decimal
+  interestRate       Decimal
+  tenureInMonths     Int    // <-- ADDED: e.g., 60 for 5 years
+  emiAmount          Decimal
+  issueDate          DateTime // Renamed from startDate for clarity
+  nextPaymentDate    DateTime?
+  status             LoanStatus @default(ACTIVE)
+
+  // Relations
+  userId   String
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments LoanPayment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("loans")
+}
+
+model LoanPayment {
+  id          String   @id @default(uuid())
+  amount      Decimal // The actual amount paid
+  paymentDate DateTime // The date the payment was made
+  notes       String?
+
+  // Relations
+  loanId String
+  loan   Loan   @relation(fields: [loanId], references: [id], onDelete: Cascade)
+
+  // This links a loan payment to a specific expense in your main transactions table
+  transactionId String      @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([loanId])
+  @@map("loan_payments")
+}
+
+
+// --- ENUMS ---
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum AccountType {
+  CURRENT
+  SAVINGS
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum RecurringInterval {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+// --- NEW ENUMS for Loans ---
+
+enum LoanType {
+  HOME
+  AUTO
+  PERSONAL
+  EDUCATION
+  OTHER
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID_OFF
+  DEFAULTED
+}
+
+
+// --- INVESTMENT & SAVINGS MODELS ---
+
+model Investment {
+  id          String   @id @default(uuid())
+  name        String
+  type        InvestmentType
+  amount      Decimal
+  date        DateTime
+  notes       String?
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@map("investments")
+}
+
+model SavingsJar {
+  id            String   @id @default(uuid())
+  name          String
+  targetAmount  Decimal
+  currentAmount Decimal @default(0)
+  goalDate      DateTime?
+  notes         String?
+
+  // Relations
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+  @@map("savings_jars")
+}
+
+enum InvestmentType {
+  STOCKS
+  MUTUAL_FUNDS
+  BONDS
+  REAL_ESTATE
+  CRYPTO
+  OTHER
+}
+
+// --- PORTFOLIO ASSET MODELS ---
+model FixedDeposit {
+  id           String   @id @default(uuid())
+  bank         String
+  principal    Decimal
+  rate         Float
+  maturityDate DateTime
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([userId])
+  @@map("fixed_deposits")
+}
+
+model PPF {
+  id        String   @id @default(uuid())
+  balance   Decimal
+  asOf      DateTime
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+  @@map("ppfs")
+}
+
+model BondDetail {
+  id           String   @id @default(uuid())
+  name         String
+  units        Int
+  invested     Decimal
+  currentValue Decimal
+  maturityDate DateTime
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([userId])
+  @@map("bond_details")
+}
+
+model RealEstate {
+  id            String   @id @default(uuid())
+  desc          String
+  purchasePrice Decimal
+  currentValue  Decimal
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([userId])
+  @@map("real_estates")
+}
+
+model Gold {
+  id            String   @id @default(uuid())
+  desc          String
+  purchasePrice Decimal
+  currentValue  Decimal
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([userId])
+  @@map("golds")
+}
+
+
+model AddTransaction {
+  id        Int      @id @default(autoincrement())
+  amount    Float
+  createdAt DateTime @default(now())
+  // other fields
+}
+
+model Expense {
+  id        Int      @id @default(autoincrement())
+  userId    String
+  title     String
+  amount    Float
+  category  String
+  note      String?
+  date      DateTime
+  recurring Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
