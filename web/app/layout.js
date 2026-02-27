@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import { Toaster } from "@/components/ui/sonner";
 import { CopilotKit } from "@copilotkit/react-core";
 import { ClerkProvider } from "@clerk/nextjs";
+import { LanguageProvider } from "@/context/LanguageContext";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -26,11 +27,13 @@ export default function RootLayout({ children }) {
           disableTransitionOnChange
         >
           <ClerkProvider>
-            <Header />
-            <CopilotKit publicApiKey="ck_pub_faec2cff9fb6283e3cdb6997413a4fbe">
-              <main className="min-h-screen">{children}</main>
-            </CopilotKit>
-            <Toaster />
+            <LanguageProvider>
+              <Header />
+              <CopilotKit publicApiKey="ck_pub_faec2cff9fb6283e3cdb6997413a4fbe">
+                <main className="min-h-screen">{children}</main>
+              </CopilotKit>
+              <Toaster />
+            </LanguageProvider>
           </ClerkProvider>
         </ThemeProvider>
       </body>

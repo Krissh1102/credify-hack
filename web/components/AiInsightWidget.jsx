@@ -130,46 +130,48 @@ export default function AiInsightWidget({ title = "AI Insight", insightType, dat
             <CardContent>
                 {/* Empty state */}
                 {!text && !loading && !error && (
-                    <button
-                        onClick={generate}
-                        className="w-full text-left text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                    <Button
+                    onClick={generate}
+                    className="w-full text-left text-xs text-white hover:text-foreground transition-colors py-1 bg-black"
+                    variant="outline"
                     >
-                        Click to generate insight…
-                    </button>
+                    Click here to generate insight!
+                    </Button>
                 )}
 
                 {/* Loading skeleton */}
                 {loading && !text && (
                     <div className="space-y-2 animate-pulse">
-                        <div className="h-3 bg-muted rounded w-full" />
-                        <div className="h-3 bg-muted rounded w-4/5" />
-                        <div className="h-3 bg-muted rounded w-3/5" />
+                    <div className="h-3 bg-muted rounded w-full" />
+                    <div className="h-3 bg-muted rounded w-4/5" />
+                    <div className="h-3 bg-muted rounded w-3/5" />
                     </div>
                 )}
 
                 {/* Streamed text */}
                 {text && (
                     <p className="text-sm text-muted-foreground leading-relaxed">
-                        {text}
-                        {loading && (
-                            <span className="inline-block w-1 h-3 bg-muted-foreground/60 ml-0.5 animate-pulse rounded-sm" />
-                        )}
+                    {text}
+                    {loading && (
+                        <span className="inline-block w-1 h-3 bg-muted-foreground/60 ml-0.5 animate-pulse rounded-sm" />
+                    )}
                     </p>
                 )}
 
                 {/* Error */}
                 {error && (
                     <div className="text-xs text-destructive space-y-1">
-                        <p>Failed to generate: {error}</p>
-                        <button
-                            onClick={generate}
-                            className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                            <RefreshCw className="h-3 w-3" /> Retry
-                        </button>
+                    <p>Failed to generate: {error}</p>
+                    <button
+                        onClick={generate}
+                        className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        <RefreshCw className="h-3 w-3" />
+                        Retry
+                    </button>
                     </div>
                 )}
-            </CardContent>
+                </CardContent>
         </Card>
     );
 }

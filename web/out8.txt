@@ -1,0 +1,2 @@
+Status: 400
+Body: {"traceId":"1-69a1e957-6d8dd50b792fd1ea4f229a63","errorCode":"InvalidRequest","errorMsg":"1 validation error(s): [1] Purpose -> Unknown field."}

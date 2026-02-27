@@ -23,9 +23,10 @@ import {
   Moon,
 } from "lucide-react";
 import { IconMenu2 } from "@tabler/icons-react";
+import TranslateWidget from "./TranslateWidget";
 
 const Header = ({ setOpen }) => {
-
+  const {setTheme} = useTheme()
   return (
     <header className="fixed top-0 w-full bg-white/80 backdrop-blur-md z-50 border-b h-17 dark:bg-black">
       <nav className="w-full h-full flex items-center justify-between px-4">
@@ -86,6 +87,26 @@ const Header = ({ setOpen }) => {
               </Button>
             </Link>
           </SignedIn>
+          <TranslateWidget />
+
+          {/* Theme toggle */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon">
+                <Sun className="h-[1.2rem] w-[1.2rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+                <Moon className="absolute h-[1.2rem] w-[1.2rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
+                <span className="sr-only">Toggle theme</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setTheme("light")}>
+                Light
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setTheme("dark")}>
+                Dark
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <SignedOut>
             <SignInButton forceRedirectUrl="/dashboard">

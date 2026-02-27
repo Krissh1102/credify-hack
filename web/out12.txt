@@ -1,0 +1,2 @@
+Status: 200
+Body: {"id":"0e78e82f-aa08-41c5-b49d-46d9a12b2c05","url":"https://fiu-uat.setu.co/v2/consents/webview/0e78e82f-aa08-41c5-b49d-46d9a12b2c05","status":"PENDING","detail":{"vua":"9999999999@onemoney","consentExpiry":"2026-08-27T19:01:24.154Z","consentStart":"2026-02-27T19:01:24.154Z"},"redirectUrl":"http://localhost:3000/dashboard?setu_connected=true","context":[],"PAN":"","accountsLinked":[],"tags":[],"traceId":"1-69a1f12e-39aac9de65a1a3fe21a847b3"}

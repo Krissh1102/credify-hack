@@ -224,8 +224,7 @@ function InvestmentRow({ inv }) {
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────import AiInsightWidget from "@/components/AiInsightWidget";
-
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DashboardOverview() {
   const [investments, setInvestments] = useState([]);
   const [fixedIncome, setFixedIncome] = useState({ fds: [], ppf: { balance: 0 }, bonds: [] });
@@ -513,80 +512,75 @@ export default function DashboardOverview() {
               )}
             </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Your Asset Mix</CardTitle>
-              <CardDescription>
-                How your investments are diversified.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="h-[300px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={assetMixData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={120}
-                    fill="#8884d8"
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ name, percent }) =>
-                      `${name} ${(percent * 100).toFixed(0)}%`
-                    }
-                  >
-                    {assetMixData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="lg:col-span-1">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {recentActivities.length === 0 ? (
-                  <span className="text-muted-foreground">
-                    No recent activity
-                  </span>
-                ) : (
-                  recentActivities.map((activity, index) => (
-                    <div key={index} className="flex items-center space-x-4">
-                      <div className="p-2 bg-gray-100 rounded-full">
-                        {activity.icon}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium leading-none">
-                          {activity.text}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {activity.date}
-                        </p>
-                      </div>
+            {/* Right: Donut + recent activity */}
+            <div className="space-y-6">
+              <Card className="border-0 shadow-md">
+                <CardHeader>
+                  <CardTitle className="text-base">Asset Mix</CardTitle>
+                  <CardDescription className="text-xs">Portfolio diversification</CardDescription>
+                </CardHeader>
+                <CardContent className="h-[260px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={assetMixData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={70}
+                        outerRadius={110}
+                        paddingAngle={3}
+                        dataKey="value"
+                        nameKey="name"
+                        labelLine={false}
+                      >
+                        {assetMixData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                        ))}
+                        <DonutCenterLabel viewBox={{ cx: 0, cy: 0 }} total={summary.totalCurrentValue} />
+                      </Pie>
+                      <Tooltip
+                        formatter={(value) => formatINR(value)}
+                        contentStyle={{ borderRadius: "10px", border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+                <div className="px-4 pb-4 flex flex-wrap gap-2">
+                  {assetMixData.map((entry) => (
+                    <div key={entry.name} className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                      {entry.name}
                     </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+                  ))}
+                </div>
+              </Card>
 
-      {/* AI Insights */}
-      <div className="grid gap-4 md:grid-cols-2 mt-6">
-        <AiInsightWidget title="Investment Health" insightType="investment_health" />
-        <AiInsightWidget title="Savings Rate" insightType="savings_rate" />
+              {/* Gold price card if user has gold */}
+              {enriched.some((i) => i.type === "GOLD" && i.marketData?.pricePerGram) && (
+                <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50 to-yellow-50">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">🥇 Live Gold Price</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {(() => {
+                      const g = enriched.find((i) => i.type === "GOLD")?.marketData;
+                      return (
+                        <>
+                          <p className="text-2xl font-bold text-amber-700">
+                            ₹{g.pricePerGram?.toLocaleString("en-IN", { maximumFractionDigits: 0 })}/g
+                          </p>
+                          <p className="text-sm text-amber-600 mt-0.5">
+                            ₹{g.pricePerOz?.toLocaleString("en-IN", { maximumFractionDigits: 0 })} per troy oz
+                          </p>
+                        </>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
