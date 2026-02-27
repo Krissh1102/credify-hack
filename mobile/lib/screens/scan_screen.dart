@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile/services/camera_service.dart';
 import 'package:mobile/theme/theme.dart';
 
 class ScanScreen extends StatefulWidget {
@@ -23,6 +26,7 @@ class _ScanScreenState extends State<ScanScreen>
   bool _typeDropOpen = false;
   bool _accountDropOpen = false;
   bool _categoryDropOpen = false;
+  File? _scannedReceipt;
 
   final _amountCtrl = TextEditingController();
   final _dateCtrl = TextEditingController();
@@ -46,6 +50,49 @@ class _ScanScreenState extends State<ScanScreen>
     'Investment',
     'Others',
   ];
+
+  Future<void> _scanReceipt() async {
+    HapticFeedback.lightImpact();
+
+    final result = await CameraService.instance.showPickerSheet(context);
+
+    if (!result.success) {
+      // User cancelled or an error occurred
+      // if (result.error != null && mounted) {
+      //   ScaffoldMessenger.of(context).showSnackBar(
+      //     SnackBar(
+      //       content: Text('Camera error: ${result.error}'),
+      //       backgroundColor: T.red,
+      //       behavior: SnackBarBehavior.floating,
+      //       margin: EdgeInsets.all(R.p(16)),
+      //       shape: RoundedRectangleBorder(
+      //         borderRadius: BorderRadius.circular(R.r(12)),
+      //       ),
+      //     ),
+      //   );
+      // }
+      return;
+    }
+
+    HapticFeedback.lightImpact();
+
+    if (!result.success || !mounted) return;
+    setState(() => _scannedReceipt = result.image);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Receipt captured! AI analysis coming soon…'),
+          backgroundColor: T.accent,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(R.p(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12)),
+          ),
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -207,7 +254,7 @@ class _ScanScreenState extends State<ScanScreen>
                             icon: Icons.document_scanner_rounded,
                             label: 'Scan Receipt with AI',
                             gradient: [T.accent, T.accentSoft],
-                            onTap: () {},
+                            onTap: _scanReceipt,
                           ),
                           SizedBox(height: R.p(10)),
                           _ActionButton(
@@ -216,6 +263,45 @@ class _ScanScreenState extends State<ScanScreen>
                             gradient: [T.accentSoft, T.accent],
                             onTap: () {},
                           ),
+                          if (_scannedReceipt != null) ...[
+                            SizedBox(height: R.p(12)),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(R.r(14)),
+                              child: Stack(
+                                children: [
+                                  Image.file(
+                                    _scannedReceipt!,
+                                    width: double.infinity,
+                                    height: R.p(160),
+                                    fit: BoxFit.cover,
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () => setState(
+                                        () => _scannedReceipt = null,
+                                      ),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black54,
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
 
                           SizedBox(height: R.p(22)),
                           _Divider(),

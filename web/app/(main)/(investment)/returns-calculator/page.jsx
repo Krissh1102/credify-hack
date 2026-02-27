@@ -191,7 +191,81 @@ const SIPCalculator = () => {
   );
 };
 
-// --- FD CALCULATOR ---
+// --- LUMPSUM CALCULATOR ---
+const LumpsumCalculator = () => {
+  const [principal, setPrincipal] = useState(100000);
+  const [rateOfReturn, setRateOfReturn] = useState(12);
+  const [duration, setDuration] = useState(10);
+
+  const { futureValue, estimatedReturns, chartData } = useMemo(() => {
+    const r = rateOfReturn / 100;
+    const futureValue = principal * Math.pow(1 + r, duration);
+    const estimatedReturns = futureValue - principal;
+
+    const data = [];
+    for (let year = 1; year <= duration; year++) {
+      data.push({
+        year: `Year ${year}`,
+        invested: principal,
+        value: Math.round(principal * Math.pow(1 + r, year)),
+      });
+    }
+    return { futureValue, estimatedReturns, chartData: data };
+  }, [principal, rateOfReturn, duration]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Lumpsum Investment Calculator</CardTitle>
+        <CardDescription>Estimate the future value of a one-time investment.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="space-y-6">
+            <div>
+              <label className="text-sm font-medium">One-time Investment (₹)</label>
+              <Input type="number" value={principal} onChange={(e) => setPrincipal(Number(e.target.value))} className="mt-1" />
+              <Slider value={[principal]} onValueChange={(val) => setPrincipal(val[0])} max={5000000} step={10000} className="mt-2" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Expected Return Rate (% p.a.)</label>
+              <Input type="number" value={rateOfReturn} onChange={(e) => setRateOfReturn(Number(e.target.value))} className="mt-1" />
+              <Slider value={[rateOfReturn]} onValueChange={(val) => setRateOfReturn(val[0])} max={30} step={1} className="mt-2" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Investment Duration (Years)</label>
+              <Input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="mt-1" />
+              <Slider value={[duration]} onValueChange={(val) => setDuration(val[0])} max={40} step={1} className="mt-2" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            <Card className="p-6 text-center bg-gradient-to-br from-purple-50 to-blue-50 border-purple-100">
+              <p className="text-sm text-muted-foreground">Future Value</p>
+              <p className="text-4xl font-bold text-purple-600">{formatCurrency(futureValue)}</p>
+              <div className="flex justify-around mt-4 text-sm">
+                <div><p className="text-muted-foreground">Invested</p><p className="font-semibold">{formatCurrency(principal)}</p></div>
+                <div><p className="text-muted-foreground">Est. Returns</p><p className="font-semibold text-green-600">{formatCurrency(estimatedReturns)}</p></div>
+              </div>
+            </Card>
+            <div className="flex-grow min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis tickFormatter={(value) => `₹${value / 100000}L`} />
+                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                  <Legend />
+                  <Line type="monotone" dataKey="invested" name="Principal (Flat)" stroke="#8884d8" strokeDasharray="5 5" />
+                  <Line type="monotone" dataKey="value" name="Future Value" stroke="#a855f7" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 const FDCalculator = () => {
   const [principal, setPrincipal] = useState(100000);
   const [rate, setRate] = useState(7.0);
@@ -372,33 +446,44 @@ const PPFCalculator = () => {
 
 export default function FinancialCalculatorsPage() {
   return (
-    <div className="p-4 md:p-8 min-h-screen">
-      <h1 className="text-3xl font-bold  mb-2">
-        Financial Calculators
-      </h1>
-      <p className="text-muted-foreground mb-6">
-        Plan your investments and estimate your future wealth.
-      </p>
+    <div className="min-h-screen">
+      {/* Hero banner */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-purple-950 to-slate-900 px-6 py-10 md:px-10 mb-6">
+        <div className="absolute -top-16 -right-16 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="relative">
+          <p className="text-purple-400 text-sm font-semibold tracking-widest uppercase mb-1">Tools</p>
+          <h1 className="text-3xl md:text-4xl font-bold text-white mb-1">Financial Calculators</h1>
+          <p className="text-slate-400 text-sm">Plan your investments and estimate your future wealth.</p>
+        </div>
+      </div>
+      <div className="p-4 md:p-8">
 
-      <Tabs defaultValue="sip" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="sip">SIP Calculator</TabsTrigger>
-          <TabsTrigger value="fd">FD Calculator</TabsTrigger>
-          <TabsTrigger value="ppf">PPF Calculator</TabsTrigger>
-        </TabsList>
+        <Tabs defaultValue="sip" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="sip">SIP Calculator</TabsTrigger>
+            <TabsTrigger value="lumpsum">Lumpsum</TabsTrigger>
+            <TabsTrigger value="fd">FD Calculator</TabsTrigger>
+            <TabsTrigger value="ppf">PPF Calculator</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="sip" className="mt-6">
-          <SIPCalculator />
-        </TabsContent>
+          <TabsContent value="sip" className="mt-6">
+            <SIPCalculator />
+          </TabsContent>
 
-        <TabsContent value="fd" className="mt-6">
-          <FDCalculator />
-        </TabsContent>
+          <TabsContent value="lumpsum" className="mt-6">
+            <LumpsumCalculator />
+          </TabsContent>
 
-        <TabsContent value="ppf" className="mt-6">
-          <PPFCalculator />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="fd" className="mt-6">
+            <FDCalculator />
+          </TabsContent>
+
+          <TabsContent value="ppf" className="mt-6">
+            <PPFCalculator />
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }

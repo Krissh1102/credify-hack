@@ -114,13 +114,21 @@ export default function AddInvestmentPage() {
                 <SelectTrigger id="type">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="STOCKS">Stocks</SelectItem>
-                  <SelectItem value="MUTUAL_FUNDS">Mutual Funds</SelectItem>
-                  <SelectItem value="BONDS">Bonds</SelectItem>
-                  <SelectItem value="REAL_ESTATE">Real Estate</SelectItem>
-                  <SelectItem value="CRYPTO">Crypto</SelectItem>
-                  <SelectItem value="OTHER">Other</SelectItem>
+                <SelectContent className="max-h-[400px]">
+                  <div className="px-2 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-widest">Equities & Funds</div>
+                  <SelectItem value="STOCKS">📈 Individual Stocks</SelectItem>
+                  <SelectItem value="MUTUAL_FUNDS">🔄 Mutual Funds (SIP/Lumpsum)</SelectItem>
+
+                  <div className="mt-2 px-2 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-widest">Fixed Income & Savings</div>
+                  <SelectItem value="FIXED_DEPOSIT">🏦 Fixed Deposit (FD)</SelectItem>
+                  <SelectItem value="PPF">📋 Public Provident Fund (PPF)</SelectItem>
+                  <SelectItem value="BONDS">🏛️ Bonds & Government Securities</SelectItem>
+
+                  <div className="mt-2 px-2 py-1.5 text-xs font-bold text-slate-400 uppercase tracking-widest">Alternative Assets</div>
+                  <SelectItem value="REAL_ESTATE">🏠 Real Estate / Property</SelectItem>
+                  <SelectItem value="GOLD">🥇 Physical / Digital Gold</SelectItem>
+                  <SelectItem value="CRYPTO">₿ Cryptocurrency</SelectItem>
+                  <SelectItem value="OTHER">💼 Other Alternative Assets</SelectItem>
                 </SelectContent>
               </Select>
             </div>

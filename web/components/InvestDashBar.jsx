@@ -37,7 +37,7 @@ const DesktopSidebar = ({
   return (
     <motion.aside
       className={cn(
-        "h-full px-4 py-4 hidden md:flex flex-colw-[260px] shrink-0 border-r border-slate-200",
+        "h-full px-4 py-4 hidden md:flex flex-col w-[260px] shrink-0 border-r border-slate-200",
         className
       )}
       animate={{ width: animate ? (open ? 260 : 80) : 260 }}

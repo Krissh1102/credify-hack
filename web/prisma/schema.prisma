@@ -217,19 +217,20 @@ model Investment {
 }
 
 model SavingsJar {
-  id            String   @id @default(uuid())
-  name          String
-  targetAmount  Decimal
-  currentAmount Decimal @default(0)
-  goalDate      DateTime?
-  notes         String?
+  id              String   @id @default(uuid())
+  name            String
+  targetAmount    Decimal
+  currentAmount   Decimal  @default(0)
+  goalDate        DateTime?
+  notes           String?
+  recentDeposits  Json     @default("[]")
 
   // Relations
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId])
   @@map("savings_jars")
@@ -241,6 +242,9 @@ enum InvestmentType {
   BONDS
   REAL_ESTATE
   CRYPTO
+  GOLD
+  FIXED_DEPOSIT
+  PPF
   OTHER
 }
 
