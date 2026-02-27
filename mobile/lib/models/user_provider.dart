@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:mobile/services/clerk_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ═══════════════════════════════════════════════════════════════
@@ -20,11 +19,9 @@ class AppUser {
     this.imageUrl,
   });
 
-  /// First letter of first name, uppercased — for avatar fallback
   String get initial =>
       name.isNotEmpty ? name.trim()[0].toUpperCase() : email[0].toUpperCase();
 
-  /// First name only
   String get firstName => name.split(' ').first;
 
   factory AppUser.fromMap(Map<String, dynamic> m) => AppUser(
@@ -67,7 +64,7 @@ class Account {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// USER PROVIDER — InheritedNotifier wrapper
+// USER PROVIDER
 // ═══════════════════════════════════════════════════════════════
 class UserProvider extends InheritedNotifier<UserNotifier> {
   const UserProvider({
@@ -85,7 +82,7 @@ class UserProvider extends InheritedNotifier<UserNotifier> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// USER NOTIFIER — holds state, loads from Supabase
+// USER NOTIFIER
 // ═══════════════════════════════════════════════════════════════
 class UserNotifier extends ChangeNotifier {
   static final UserNotifier _instance = UserNotifier._();
@@ -104,20 +101,13 @@ class UserNotifier extends ChangeNotifier {
   bool get loading => _loading;
   String? get error => _error;
 
-  /// Default account (isDefault=true), or first account, or null
-  Account? get defaultAccount =>
-      _accounts.isEmpty
-          ? null
-          : _accounts.firstWhere(
-              (a) => a.isDefault,
-              orElse: () => _accounts.first,
-            );
+  Account? get defaultAccount => _accounts.isEmpty
+      ? null
+      : _accounts.firstWhere((a) => a.isDefault, orElse: () => _accounts.first);
 
-  /// Total balance across all accounts
   double get totalBalance =>
       _accounts.fold(0.0, (sum, a) => sum + a.balance);
 
-  /// Greeting based on current hour
   String get greeting {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good Morning,';
@@ -125,45 +115,42 @@ class UserNotifier extends ChangeNotifier {
     return 'Good Evening,';
   }
 
-  // ─── Load user data from Supabase ─────────────────────────────
-  Future<void> load() async {
+  // ─── Load — pass clerkUserId from ClerkAuth.of(context).user?.id ──
+  Future<void> load({required String clerkUserId}) async {
     if (_loading) return;
+    if (clerkUserId.isEmpty) {
+      _error = 'Not authenticated';
+      notifyListeners();
+      return;
+    }
 
     _loading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // ✅ Grab the user ID instantly from the Clerk SDK
-      final userId = ClerkAuthService.currentUserId;
-      
-      if (userId == null) {
-        _error = 'Not authenticated';
-        return;
-      }
-
-      // Fetch user row
+      // Look up user row by clerkUserId (not by id/UUID)
       final userRow = await _db
           .from('users')
           .select()
-          .eq('id', userId)
+          .eq('clerkUserId', clerkUserId)
           .maybeSingle();
 
       if (userRow != null) {
         _user = AppUser.fromMap(userRow);
+
+        // Use the internal UUID to fetch accounts
+        final internalId = _user!.id;
+        final accountRows = await _db
+            .from('accounts')
+            .select()
+            .eq('userId', internalId)
+            .order('isDefault', ascending: false);
+
+        _accounts = (accountRows as List)
+            .map((r) => Account.fromMap(r as Map<String, dynamic>))
+            .toList();
       }
-
-      // Fetch accounts for this user
-      final accountRows = await _db
-          .from('accounts')
-          .select()
-          .eq('userId', userId)
-          .order('isDefault', ascending: false); // default first
-
-      _accounts = (accountRows as List)
-          .map((r) => Account.fromMap(r as Map<String, dynamic>))
-          .toList();
-
     } on PostgrestException catch (e) {
       _error = e.message;
     } catch (e) {

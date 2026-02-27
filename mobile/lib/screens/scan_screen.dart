@@ -2,8 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile/provider/transaction_provider.dart';
+
 import 'package:mobile/services/camera_service.dart';
 import 'package:mobile/theme/theme.dart';
+import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -21,6 +25,8 @@ class _ScanScreenState extends State<ScanScreen>
   // Form state
   String _selectedType = '';
   String _selectedAccount = "Ved's Main Account";
+  String _selectedAccountId =
+      "b2a55e13-3ca1-4dd4-acfc-29347b..."; // Default account ID
   String _selectedCategory = '';
   bool _recurring = false;
   bool _typeDropOpen = false;
@@ -28,14 +34,17 @@ class _ScanScreenState extends State<ScanScreen>
   bool _categoryDropOpen = false;
   File? _scannedReceipt;
 
+  // Filter state
+  String _filterType = 'ALL'; // ALL, INCOME, EXPENSE
+
   final _amountCtrl = TextEditingController();
   final _dateCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
 
   static const _accounts = [
-    ("Ved's Main Account", 'Savings'),
-    ('Business Account', 'Current'),
-    ('Joint Account', 'Savings'),
+    ("Ved's Main Account", 'Savings', "b2a55e13-3ca1-4dd4-acfc-29347b..."),
+    ('Business Account', 'Current', "0d5ad69c-9a95-4aca-af7d-bb57e..."),
+    ('Joint Account', 'Savings', "1a27f949-8ab8-4469-9b28-e6003..."),
   ];
 
   static const _types = ['Income', 'Expense', 'Transfer', 'Investment'];
@@ -51,28 +60,54 @@ class _ScanScreenState extends State<ScanScreen>
     'Others',
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _fade = CurvedAnimation(parent: _ac, curve: Curves.easeOut);
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 0.05),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
+    _ac.forward();
+
+    // Default date to today
+    final now = DateTime.now();
+    _dateCtrl.text =
+        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+
+    // Load transactions on init
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<TransactionProvider>().loadTransactions();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ac.dispose();
+    _amountCtrl.dispose();
+    _dateCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  void _closeAllDropdowns() {
+    setState(() {
+      _typeDropOpen = false;
+      _accountDropOpen = false;
+      _categoryDropOpen = false;
+    });
+  }
+
   Future<void> _scanReceipt() async {
     HapticFeedback.lightImpact();
 
     final result = await CameraService.instance.showPickerSheet(context);
 
-    if (!result.success) {
-      // User cancelled or an error occurred
-      // if (result.error != null && mounted) {
-      //   ScaffoldMessenger.of(context).showSnackBar(
-      //     SnackBar(
-      //       content: Text('Camera error: ${result.error}'),
-      //       backgroundColor: T.red,
-      //       behavior: SnackBarBehavior.floating,
-      //       margin: EdgeInsets.all(R.p(16)),
-      //       shape: RoundedRectangleBorder(
-      //         borderRadius: BorderRadius.circular(R.r(12)),
-      //       ),
-      //     ),
-      //   );
-      // }
-      return;
-    }
+    if (!result.success) return;
 
     HapticFeedback.lightImpact();
 
@@ -94,50 +129,82 @@ class _ScanScreenState extends State<ScanScreen>
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _ac = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _fade = CurvedAnimation(parent: _ac, curve: Curves.easeOut);
-    _slide = Tween<Offset>(
-      begin: const Offset(0, 0.05),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
-    _ac.forward();
+  Future<void> _handleCreate() async {
+    // Validation
+    if (_selectedType.isEmpty) {
+      _showError('Please select a transaction type');
+      return;
+    }
+    if (_amountCtrl.text.isEmpty) {
+      _showError('Please enter an amount');
+      return;
+    }
+    if (_selectedCategory.isEmpty) {
+      _showError('Please select a category');
+      return;
+    }
 
-    // Default date to today
-    final now = DateTime.now();
-    _dateCtrl.text =
-        '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
-  }
+    final amount = double.tryParse(_amountCtrl.text);
+    if (amount == null) {
+      _showError('Please enter a valid amount');
+      return;
+    }
 
-  @override
-  void dispose() {
-    _ac.dispose();
-    _amountCtrl.dispose();
-    _dateCtrl.dispose();
-    _descCtrl.dispose();
-    super.dispose();
-  }
-
-  void _closeAllDropdowns() {
-    setState(() {
-      _typeDropOpen = false;
-      _accountDropOpen = false;
-      _categoryDropOpen = false;
-    });
-  }
-
-  void _handleCreate() {
     HapticFeedback.mediumImpact();
-    // TODO: wire to backend
+
+    // Create transaction in database
+    final provider = context.read<TransactionProvider>();
+    final success = await provider.createTransaction(
+      accountId: _selectedAccountId,
+      type: _selectedType.toUpperCase(),
+      amount: amount,
+      category: _selectedCategory,
+      date: _dateCtrl.text,
+      description: _descCtrl.text,
+      isRecurring: _recurring,
+      recurringInterval: _recurring ? 'MONTHLY' : null,
+      nextRecurringDate: _recurring
+          ? DateTime.now().add(const Duration(days: 30))
+          : null,
+    );
+
+    if (success && mounted) {
+      // Clear form
+      _amountCtrl.clear();
+      _descCtrl.clear();
+      setState(() {
+        _selectedType = '';
+        _selectedCategory = '';
+        _recurring = false;
+        _scannedReceipt = null;
+
+        // Reset date to today
+        final now = DateTime.now();
+        _dateCtrl.text =
+            '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Transaction created successfully!'),
+          backgroundColor: Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(R.p(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12)),
+          ),
+        ),
+      );
+    } else if (mounted) {
+      _showError('Failed to create transaction');
+    }
+  }
+
+  void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('Transaction created successfully!'),
-        backgroundColor: Colors.green.shade700,
+        content: Text(message),
+        backgroundColor: T.red,
         behavior: SnackBarBehavior.floating,
         margin: EdgeInsets.all(R.p(16)),
         shape: RoundedRectangleBorder(
@@ -147,368 +214,459 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
+  List<Map<String, dynamic>> _getFilteredTransactions(
+    TransactionProvider provider,
+  ) {
+    switch (_filterType) {
+      case 'INCOME':
+        return provider.incomeTransactions;
+      case 'EXPENSE':
+        return provider.expenseTransactions;
+      default:
+        return provider.transactions;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     R.init(context);
     final notifier = ThemeProvider.of(context);
     T.init(notifier.isDark);
 
-    return FadeTransition(
-      opacity: _fade,
-      child: SlideTransition(
-        position: _slide,
-        child: GestureDetector(
-          onTap: () {
-            FocusScope.of(context).unfocus();
-            _closeAllDropdowns();
-          },
-          child: CustomScrollView(
-            physics: const BouncingScrollPhysics(
-              parent: AlwaysScrollableScrollPhysics(),
-            ),
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  R.p(20),
-                  R.p(10),
-                  R.p(20),
-                  R.p(32),
-                ),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    // ── Select Account Card ─────────────────────
-                    _SCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Select Account',
-                            style: TextStyle(
-                              color: T.textSecondary,
-                              fontSize: R.fs(12),
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.3,
-                            ),
-                          ),
-                          SizedBox(height: R.p(10)),
-                          // Account selector
-                          _AccountSelector(
-                            selected: _selectedAccount,
-                            accounts: _accounts,
-                            isOpen: _accountDropOpen,
-                            onToggle: () {
-                              FocusScope.of(context).unfocus();
-                              setState(() {
-                                _typeDropOpen = false;
-                                _categoryDropOpen = false;
-                                _accountDropOpen = !_accountDropOpen;
-                              });
-                            },
-                            onSelect: (v) => setState(() {
-                              _selectedAccount = v;
-                              _accountDropOpen = false;
-                            }),
-                          ),
-                          SizedBox(height: R.p(10)),
-                          // Detailed statement link
-                          Center(
-                            child: GestureDetector(
-                              onTap: () {},
-                              child: Text(
-                                'Detailed Statement',
-                                style: TextStyle(
-                                  color: T.accent,
-                                  fontSize: R.fs(13),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+    return Consumer<TransactionProvider>(
+      builder: (context, transactionProvider, _) {
+        final filteredTransactions = _getFilteredTransactions(
+          transactionProvider,
+        );
+
+        return FadeTransition(
+          opacity: _fade,
+          child: SlideTransition(
+            position: _slide,
+            child: GestureDetector(
+              onTap: () {
+                FocusScope.of(context).unfocus();
+                _closeAllDropdowns();
+              },
+              child: RefreshIndicator(
+                onRefresh: () => transactionProvider.refresh(),
+                color: T.accent,
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    SliverPadding(
+                      padding: EdgeInsets.fromLTRB(
+                        R.p(20),
+                        R.p(10),
+                        R.p(20),
+                        R.p(32),
                       ),
-                    ),
-
-                    SizedBox(height: R.p(16)),
-
-                    // ── Add Transaction Card ────────────────────
-                    _SCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Section title
-                          Center(
-                            child: Text(
-                              'Add Transaction',
-                              style: TextStyle(
-                                color: T.textPrimary,
-                                fontSize: R.fs(17),
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: -0.4,
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: R.p(16)),
-
-                          // ── AI / Voice buttons ────────────────
-                          _ActionButton(
-                            icon: Icons.document_scanner_rounded,
-                            label: 'Scan Receipt with AI',
-                            gradient: [T.accent, T.accentSoft],
-                            onTap: _scanReceipt,
-                          ),
-                          SizedBox(height: R.p(10)),
-                          _ActionButton(
-                            icon: Icons.mic_rounded,
-                            label: 'Add using Voice',
-                            gradient: [T.accentSoft, T.accent],
-                            onTap: () {},
-                          ),
-                          if (_scannedReceipt != null) ...[
-                            SizedBox(height: R.p(12)),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(R.r(14)),
-                              child: Stack(
-                                children: [
-                                  Image.file(
-                                    _scannedReceipt!,
-                                    width: double.infinity,
-                                    height: R.p(160),
-                                    fit: BoxFit.cover,
+                      sliver: SliverList(
+                        delegate: SliverChildListDelegate([
+                          // ── Select Account Card ─────────────────────
+                          _SCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Select Account',
+                                  style: TextStyle(
+                                    color: T.textSecondary,
+                                    fontSize: R.fs(12),
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.3,
                                   ),
-                                  Positioned(
-                                    top: 8,
-                                    right: 8,
-                                    child: GestureDetector(
-                                      onTap: () => setState(
-                                        () => _scannedReceipt = null,
-                                      ),
-                                      child: Container(
-                                        padding: const EdgeInsets.all(4),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black54,
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                        ),
-                                        child: const Icon(
-                                          Icons.close,
-                                          color: Colors.white,
-                                          size: 16,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          SizedBox(height: R.p(22)),
-                          _Divider(),
-                          SizedBox(height: R.p(20)),
-
-                          // ── Type ──────────────────────────────
-                          _FieldLabel('Type'),
-                          SizedBox(height: R.p(8)),
-                          _DropField(
-                            value: _selectedType,
-                            hint: 'Select type',
-                            isOpen: _typeDropOpen,
-                            items: _types,
-                            onToggle: () {
-                              FocusScope.of(context).unfocus();
-                              setState(() {
-                                _accountDropOpen = false;
-                                _categoryDropOpen = false;
-                                _typeDropOpen = !_typeDropOpen;
-                              });
-                            },
-                            onSelect: (v) => setState(() {
-                              _selectedType = v;
-                              _typeDropOpen = false;
-                            }),
-                            accent: _typeColor(_selectedType),
-                          ),
-
-                          SizedBox(height: R.p(16)),
-
-                          // ── Amount + Account row ──────────────
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _FieldLabel('Amount'),
-                                    SizedBox(height: R.p(8)),
-                                    _TextField(
-                                      controller: _amountCtrl,
-                                      hint: '₹ 0.00',
-                                      keyboardType:
-                                          const TextInputType.numberWithOptions(
-                                            decimal: true,
-                                          ),
-                                      prefix: Text(
-                                        '₹',
-                                        style: TextStyle(
-                                          color: T.accent,
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: R.fs(14),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
                                 ),
-                              ),
-                              SizedBox(width: R.p(12)),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _FieldLabel('Account'),
-                                    SizedBox(height: R.p(8)),
-                                    _ReadOnlyField(
-                                      value: _selectedAccount.split(' ').first,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          SizedBox(height: R.p(16)),
-
-                          // ── Category ──────────────────────────
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              _FieldLabel('Category'),
-                              SizedBox(width: R.p(12)),
-                              Expanded(
-                                child: _DropField(
-                                  value: _selectedCategory,
-                                  hint: 'Select',
-                                  isOpen: _categoryDropOpen,
-                                  items: _categories,
+                                SizedBox(height: R.p(10)),
+                                _AccountSelector(
+                                  selected: _selectedAccount,
+                                  accounts: _accounts,
+                                  isOpen: _accountDropOpen,
                                   onToggle: () {
                                     FocusScope.of(context).unfocus();
                                     setState(() {
                                       _typeDropOpen = false;
+                                      _categoryDropOpen = false;
+                                      _accountDropOpen = !_accountDropOpen;
+                                    });
+                                  },
+                                  onSelect: (name, id) => setState(() {
+                                    _selectedAccount = name;
+                                    _selectedAccountId = id;
+                                    _accountDropOpen = false;
+                                  }),
+                                ),
+                                SizedBox(height: R.p(10)),
+                                Center(
+                                  child: GestureDetector(
+                                    onTap: () {},
+                                    child: Text(
+                                      'Detailed Statement',
+                                      style: TextStyle(
+                                        color: T.accent,
+                                        fontSize: R.fs(13),
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          SizedBox(height: R.p(16)),
+
+                          // ── Add Transaction Card ────────────────────
+                          _SCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Center(
+                                  child: Text(
+                                    'Add Transaction',
+                                    style: TextStyle(
+                                      color: T.textPrimary,
+                                      fontSize: R.fs(17),
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: -0.4,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(height: R.p(16)),
+
+                                _ActionButton(
+                                  icon: Icons.document_scanner_rounded,
+                                  label: 'Scan Receipt with AI',
+                                  gradient: [T.accent, T.accentSoft],
+                                  onTap: _scanReceipt,
+                                ),
+                                SizedBox(height: R.p(10)),
+                                _ActionButton(
+                                  icon: Icons.mic_rounded,
+                                  label: 'Add using Voice',
+                                  gradient: [T.accentSoft, T.accent],
+                                  onTap: () {},
+                                ),
+                                if (_scannedReceipt != null) ...[
+                                  SizedBox(height: R.p(12)),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(
+                                      R.r(14),
+                                    ),
+                                    child: Stack(
+                                      children: [
+                                        Image.file(
+                                          _scannedReceipt!,
+                                          width: double.infinity,
+                                          height: R.p(160),
+                                          fit: BoxFit.cover,
+                                        ),
+                                        Positioned(
+                                          top: 8,
+                                          right: 8,
+                                          child: GestureDetector(
+                                            onTap: () => setState(
+                                              () => _scannedReceipt = null,
+                                            ),
+                                            child: Container(
+                                              padding: const EdgeInsets.all(4),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black54,
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                              ),
+                                              child: const Icon(
+                                                Icons.close,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+
+                                SizedBox(height: R.p(22)),
+                                _Divider(),
+                                SizedBox(height: R.p(20)),
+
+                                _FieldLabel('Type'),
+                                SizedBox(height: R.p(8)),
+                                _DropField(
+                                  value: _selectedType,
+                                  hint: 'Select type',
+                                  isOpen: _typeDropOpen,
+                                  items: _types,
+                                  onToggle: () {
+                                    FocusScope.of(context).unfocus();
+                                    setState(() {
                                       _accountDropOpen = false;
-                                      _categoryDropOpen = !_categoryDropOpen;
+                                      _categoryDropOpen = false;
+                                      _typeDropOpen = !_typeDropOpen;
                                     });
                                   },
                                   onSelect: (v) => setState(() {
-                                    _selectedCategory = v;
-                                    _categoryDropOpen = false;
+                                    _selectedType = v;
+                                    _typeDropOpen = false;
                                   }),
-                                  accent: T.gold,
+                                  accent: _typeColor(_selectedType),
                                 ),
-                              ),
-                            ],
-                          ),
 
-                          SizedBox(height: R.p(16)),
+                                SizedBox(height: R.p(16)),
 
-                          // ── Date ──────────────────────────────
-                          _FieldLabel('Date'),
-                          SizedBox(height: R.p(8)),
-                          _TextField(
-                            controller: _dateCtrl,
-                            hint: 'DD/MM/YYYY',
-                            keyboardType: TextInputType.datetime,
-                            suffix: Icon(
-                              Icons.calendar_today_rounded,
-                              color: T.textSecondary,
-                              size: R.fs(16),
-                            ),
-                            onTap: () async {
-                              FocusScope.of(context).unfocus();
-                              _closeAllDropdowns();
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: DateTime.now(),
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime(2030),
-                                builder: (ctx, child) => Theme(
-                                  data: Theme.of(ctx).copyWith(
-                                    colorScheme: ColorScheme.dark(
-                                      primary: T.accent,
-                                      surface: T.surface,
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FieldLabel('Amount'),
+                                          SizedBox(height: R.p(8)),
+                                          _TextField(
+                                            controller: _amountCtrl,
+                                            hint: '₹ 0.00',
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            prefix: Text(
+                                              '₹',
+                                              style: TextStyle(
+                                                color: T.accent,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: R.fs(14),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  child: child!,
+                                    SizedBox(width: R.p(12)),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          _FieldLabel('Account'),
+                                          SizedBox(height: R.p(8)),
+                                          _ReadOnlyField(
+                                            value: _selectedAccount
+                                                .split(' ')
+                                                .first,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              );
-                              if (picked != null) {
-                                _dateCtrl.text =
-                                    '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}';
-                              }
-                            },
-                          ),
 
-                          SizedBox(height: R.p(16)),
+                                SizedBox(height: R.p(16)),
 
-                          // ── Description ───────────────────────
-                          _FieldLabel('Description'),
-                          SizedBox(height: R.p(8)),
-                          _TextField(
-                            controller: _descCtrl,
-                            hint: 'Add a note...',
-                            keyboardType: TextInputType.multiline,
-                            maxLines: 2,
-                          ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    _FieldLabel('Category'),
+                                    SizedBox(width: R.p(12)),
+                                    Expanded(
+                                      child: _DropField(
+                                        value: _selectedCategory,
+                                        hint: 'Select',
+                                        isOpen: _categoryDropOpen,
+                                        items: _categories,
+                                        onToggle: () {
+                                          FocusScope.of(context).unfocus();
+                                          setState(() {
+                                            _typeDropOpen = false;
+                                            _accountDropOpen = false;
+                                            _categoryDropOpen =
+                                                !_categoryDropOpen;
+                                          });
+                                        },
+                                        onSelect: (v) => setState(() {
+                                          _selectedCategory = v;
+                                          _categoryDropOpen = false;
+                                        }),
+                                        accent: T.gold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
 
-                          SizedBox(height: R.p(20)),
+                                SizedBox(height: R.p(16)),
 
-                          // ── Recurring toggle ──────────────────
-                          _RecurringRow(
-                            value: _recurring,
-                            onChanged: (v) => setState(() => _recurring = v),
-                          ),
-
-                          SizedBox(height: R.p(24)),
-
-                          // ── Action buttons ────────────────────
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _OutlineBtn(
-                                  label: 'Cancel',
-                                  color: T.red,
-                                  onTap: () {
-                                    _amountCtrl.clear();
-                                    _descCtrl.clear();
-                                    setState(() {
-                                      _selectedType = '';
-                                      _selectedCategory = '';
-                                      _recurring = false;
-                                    });
+                                _FieldLabel('Date'),
+                                SizedBox(height: R.p(8)),
+                                _TextField(
+                                  controller: _dateCtrl,
+                                  hint: 'DD/MM/YYYY',
+                                  keyboardType: TextInputType.datetime,
+                                  suffix: Icon(
+                                    Icons.calendar_today_rounded,
+                                    color: T.textSecondary,
+                                    size: R.fs(16),
+                                  ),
+                                  onTap: () async {
+                                    FocusScope.of(context).unfocus();
+                                    _closeAllDropdowns();
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: DateTime.now(),
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime(2030),
+                                      builder: (ctx, child) => Theme(
+                                        data: Theme.of(ctx).copyWith(
+                                          colorScheme: ColorScheme.dark(
+                                            primary: T.accent,
+                                            surface: T.surface,
+                                          ),
+                                        ),
+                                        child: child!,
+                                      ),
+                                    );
+                                    if (picked != null) {
+                                      _dateCtrl.text =
+                                          '${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}';
+                                    }
                                   },
                                 ),
+
+                                SizedBox(height: R.p(16)),
+
+                                _FieldLabel('Description'),
+                                SizedBox(height: R.p(8)),
+                                _TextField(
+                                  controller: _descCtrl,
+                                  hint: 'Add a note...',
+                                  keyboardType: TextInputType.multiline,
+                                  maxLines: 2,
+                                ),
+
+                                SizedBox(height: R.p(20)),
+
+                                _RecurringRow(
+                                  value: _recurring,
+                                  onChanged: (v) =>
+                                      setState(() => _recurring = v),
+                                ),
+
+                                SizedBox(height: R.p(24)),
+
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: _OutlineBtn(
+                                        label: 'Cancel',
+                                        color: T.red,
+                                        onTap: () {
+                                          _amountCtrl.clear();
+                                          _descCtrl.clear();
+                                          setState(() {
+                                            _selectedType = '';
+                                            _selectedCategory = '';
+                                            _recurring = false;
+                                            _scannedReceipt = null;
+                                          });
+                                        },
+                                      ),
+                                    ),
+                                    SizedBox(width: R.p(12)),
+                                    Expanded(
+                                      flex: 2,
+                                      child: _GradientBtn(
+                                        label: 'Create Transaction',
+                                        onTap: _handleCreate,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // ── Transaction History ────────────────────
+                          if (filteredTransactions.isNotEmpty) ...[
+                            SizedBox(height: R.p(24)),
+
+                            // Filter buttons
+                            Row(
+                              children: [
+                                Text(
+                                  'Recent Transactions',
+                                  style: TextStyle(
+                                    color: T.textPrimary,
+                                    fontSize: R.fs(18),
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.4,
+                                  ),
+                                ),
+                                const Spacer(),
+                                _FilterChip(
+                                  label: 'All',
+                                  isSelected: _filterType == 'ALL',
+                                  onTap: () =>
+                                      setState(() => _filterType = 'ALL'),
+                                ),
+                                SizedBox(width: R.p(6)),
+                                _FilterChip(
+                                  label: 'Income',
+                                  isSelected: _filterType == 'INCOME',
+                                  color: T.green,
+                                  onTap: () =>
+                                      setState(() => _filterType = 'INCOME'),
+                                ),
+                                SizedBox(width: R.p(6)),
+                                _FilterChip(
+                                  label: 'Expense',
+                                  isSelected: _filterType == 'EXPENSE',
+                                  color: T.red,
+                                  onTap: () =>
+                                      setState(() => _filterType = 'EXPENSE'),
+                                ),
+                              ],
+                            ),
+
+                            SizedBox(height: R.p(12)),
+
+                            ...filteredTransactions.map(
+                              (txn) => Padding(
+                                padding: EdgeInsets.only(bottom: R.p(12)),
+                                child: _TransactionCard(transaction: txn),
                               ),
-                              SizedBox(width: R.p(12)),
-                              Expanded(
-                                flex: 2,
-                                child: _GradientBtn(
-                                  label: 'Create Transaction',
-                                  onTap: _handleCreate,
+                            ),
+                          ] else if (transactionProvider.isLoading) ...[
+                            SizedBox(height: R.p(24)),
+                            Center(
+                              child: CircularProgressIndicator(color: T.accent),
+                            ),
+                          ] else ...[
+                            SizedBox(height: R.p(24)),
+                            Center(
+                              child: Text(
+                                'No transactions yet',
+                                style: TextStyle(
+                                  color: T.textMuted,
+                                  fontSize: R.fs(14),
                                 ),
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                          ],
+
+                          SizedBox(height: R.p(8)),
+                        ]),
                       ),
                     ),
-
-                    SizedBox(height: R.p(8)),
-                  ]),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -528,12 +686,308 @@ class _ScanScreenState extends State<ScanScreen>
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// FILTER CHIP
+// ═══════════════════════════════════════════════════════════════
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final Color? color;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.isSelected,
+    this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chipColor = color ?? T.accent;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.symmetric(horizontal: R.p(12), vertical: R.p(6)),
+        decoration: BoxDecoration(
+          color: isSelected ? chipColor.withOpacity(0.15) : T.elevated,
+          borderRadius: BorderRadius.circular(R.r(20)),
+          border: Border.all(
+            color: isSelected ? chipColor : T.border,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? chipColor : T.textSecondary,
+            fontSize: R.fs(11),
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TRANSACTION CARD
+// ═══════════════════════════════════════════════════════════════
+class _TransactionCard extends StatelessWidget {
+  final Map<String, dynamic> transaction;
+
+  const _TransactionCard({required this.transaction});
+
+  Color _getTypeColor(String type) {
+    switch (type) {
+      case 'INCOME':
+        return T.green;
+      case 'EXPENSE':
+        return T.red;
+      case 'TRANSFER':
+        return T.accent;
+      case 'INVESTMENT':
+        return T.gold;
+      default:
+        return T.textSecondary;
+    }
+  }
+
+  IconData _getTypeIcon(String type) {
+    switch (type) {
+      case 'INCOME':
+        return Icons.arrow_downward_rounded;
+      case 'EXPENSE':
+        return Icons.arrow_upward_rounded;
+      case 'TRANSFER':
+        return Icons.swap_horiz_rounded;
+      case 'INVESTMENT':
+        return Icons.trending_up_rounded;
+      default:
+        return Icons.circle;
+    }
+  }
+
+  IconData _getCategoryIcon(String category) {
+    switch (category) {
+      case 'Food & Dining':
+        return Icons.restaurant_rounded;
+      case 'Transport':
+        return Icons.directions_car_rounded;
+      case 'Shopping':
+        return Icons.shopping_bag_rounded;
+      case 'Bills & Utilities':
+        return Icons.receipt_rounded;
+      case 'Healthcare':
+        return Icons.local_hospital_rounded;
+      case 'Entertainment':
+        return Icons.movie_rounded;
+      case 'Salary':
+        return Icons.account_balance_wallet_rounded;
+      case 'Investment':
+        return Icons.show_chart_rounded;
+      default:
+        return Icons.category_rounded;
+    }
+  }
+
+  String _formatAmount(dynamic amount) {
+    if (amount is String) {
+      return double.tryParse(amount)?.toStringAsFixed(2) ?? amount;
+    } else if (amount is num) {
+      return amount.toStringAsFixed(2);
+    }
+    return '0.00';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final type = transaction['type'] as String;
+    final amount = _formatAmount(transaction['amount']);
+    final category = transaction['category'] as String;
+    final date = transaction['date'] as String;
+    final description = transaction['description'] as String? ?? '';
+    final recurring = transaction['isRecurring'] as bool? ?? false;
+    final typeColor = _getTypeColor(type);
+
+    return _SCard(
+      child: Row(
+        children: [
+          Container(
+            width: R.p(44).clamp(38.0, 50.0),
+            height: R.p(44).clamp(38.0, 50.0),
+            decoration: BoxDecoration(
+              color: typeColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(R.r(12)),
+            ),
+            child: Icon(
+              _getCategoryIcon(category),
+              color: typeColor,
+              size: R.fs(20),
+            ),
+          ),
+          SizedBox(width: R.p(14)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        category,
+                        style: TextStyle(
+                          color: T.textPrimary,
+                          fontSize: R.fs(15),
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '₹ $amount',
+                      style: TextStyle(
+                        color: typeColor,
+                        fontSize: R.fs(16),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: R.p(4)),
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: R.p(8),
+                        vertical: R.p(3),
+                      ),
+                      decoration: BoxDecoration(
+                        color: typeColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(R.r(6)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _getTypeIcon(type),
+                            color: typeColor,
+                            size: R.fs(11),
+                          ),
+                          SizedBox(width: R.p(4)),
+                          Text(
+                            type.toLowerCase().capitalize(),
+                            style: TextStyle(
+                              color: typeColor,
+                              fontSize: R.fs(10),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (recurring) ...[
+                      SizedBox(width: R.p(6)),
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: R.p(6),
+                          vertical: R.p(3),
+                        ),
+                        decoration: BoxDecoration(
+                          color: T.accent.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(R.r(6)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.repeat_rounded,
+                              color: T.accent,
+                              size: R.fs(10),
+                            ),
+                            SizedBox(width: R.p(3)),
+                            Text(
+                              'Recurring',
+                              style: TextStyle(
+                                color: T.accent,
+                                fontSize: R.fs(9),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                SizedBox(height: R.p(6)),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_rounded,
+                      color: T.textMuted,
+                      size: R.fs(11),
+                    ),
+                    SizedBox(width: R.p(4)),
+                    Text(
+                      date,
+                      style: TextStyle(
+                        color: T.textSecondary,
+                        fontSize: R.fs(11),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    if (description.isNotEmpty) ...[
+                      SizedBox(width: R.p(8)),
+                      Text(
+                        '•',
+                        style: TextStyle(
+                          color: T.textMuted,
+                          fontSize: R.fs(11),
+                        ),
+                      ),
+                      SizedBox(width: R.p(8)),
+                      Expanded(
+                        child: Text(
+                          description,
+                          style: TextStyle(
+                            color: T.textSecondary,
+                            fontSize: R.fs(11),
+                            fontWeight: FontWeight.w400,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+extension StringExtension on String {
+  String capitalize() {
+    return "${this[0].toUpperCase()}${substring(1).toLowerCase()}";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACCOUNT SELECTOR
+// ═══════════════════════════════════════════════════════════════
 class _AccountSelector extends StatelessWidget {
   final String selected;
-  final List<(String, String)> accounts;
+  final List<(String, String, String)> accounts;
   final bool isOpen;
   final VoidCallback onToggle;
-  final ValueChanged<String> onSelect;
+  final Function(String, String) onSelect;
 
   const _AccountSelector({
     required this.selected,
@@ -653,7 +1107,7 @@ class _AccountSelector extends StatelessWidget {
                     children: accounts.map((a) {
                       final isSel = a.$1 == selected;
                       return GestureDetector(
-                        onTap: () => onSelect(a.$1),
+                        onTap: () => onSelect(a.$1, a.$3),
                         child: Container(
                           width: double.infinity,
                           padding: EdgeInsets.symmetric(
@@ -711,9 +1165,10 @@ class _AccountSelector extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ACTION BUTTON (Scan / Voice)
-// ═══════════════════════════════════════════════════════════════
+// Continue with remaining widget classes...
+// (ActionButton, DropField, TextField, ReadOnlyField, RecurringRow, OutlineBtn, GradientBtn, SCard, FieldLabel, Divider)
+// These remain the same as in the previous version
+
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -773,9 +1228,6 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// DROP FIELD
-// ═══════════════════════════════════════════════════════════════
 class _DropField extends StatelessWidget {
   final String value, hint;
   final bool isOpen;
@@ -936,9 +1388,6 @@ class _DropField extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// TEXT FIELD
-// ═══════════════════════════════════════════════════════════════
 class _TextField extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
@@ -1039,9 +1488,6 @@ class _TextFieldState extends State<_TextField> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// READ-ONLY FIELD
-// ═══════════════════════════════════════════════════════════════
 class _ReadOnlyField extends StatelessWidget {
   final String value;
   const _ReadOnlyField({required this.value});
@@ -1068,9 +1514,6 @@ class _ReadOnlyField extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// RECURRING TOGGLE ROW
-// ═══════════════════════════════════════════════════════════════
 class _RecurringRow extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
@@ -1159,9 +1602,6 @@ class _RecurringRow extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CANCEL / GRADIENT BUTTONS
-// ═══════════════════════════════════════════════════════════════
 class _OutlineBtn extends StatelessWidget {
   final String label;
   final Color color;
@@ -1249,9 +1689,6 @@ class _GradientBtn extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SHARED WIDGETS
-// ═══════════════════════════════════════════════════════════════
 class _SCard extends StatelessWidget {
   final Widget child;
   const _SCard({required this.child});

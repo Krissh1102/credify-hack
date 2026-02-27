@@ -5,6 +5,75 @@ import 'package:flutter/services.dart';
 import 'package:mobile/theme/theme.dart';
 
 // ═══════════════════════════════════════════════════════════════
+// DATA MODEL — Investment entry (from Supabase "investments" table)
+// ═══════════════════════════════════════════════════════════════
+enum InvestmentType { SIP, STOCKS, REAL_ESTATE, GOLD, PPF, RD, OTHER }
+
+class Investment {
+  final String id;
+  final String name;
+  final InvestmentType type;
+  final double amount;
+  final DateTime date;
+  final String? notes;
+
+  const Investment({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.amount,
+    required this.date,
+    this.notes,
+  });
+
+  // Seed data matching the Supabase rows visible in the screenshot
+  static final List<Investment> seedData = [
+    Investment(
+      id: '176eba2b-18a4-4886-9a15-d6f6e7117592',
+      name: 'Silver ETF',
+      type: InvestmentType.STOCKS,
+      amount: 35000,
+      date: DateTime(2026, 2, 27),
+    ),
+    Investment(
+      id: '2a1dd5a1-f573-42ef-bcb5-ca09652bb58f',
+      name: 'Buldhana',
+      type: InvestmentType.REAL_ESTATE,
+      amount: 1025210,
+      date: DateTime(2026, 2, 27),
+    ),
+    Investment(
+      id: '499b48f4-f548-4ae8-a1e9-ef539706ca5b',
+      name: 'INFY',
+      type: InvestmentType.STOCKS,
+      amount: 85222,
+      date: DateTime(2024, 2, 27),
+    ),
+    Investment(
+      id: '6f8dec1a-3e53-45da-a046-bfa400048a97',
+      name: 'TATSILV',
+      type: InvestmentType.STOCKS,
+      amount: 5855,
+      date: DateTime(2025, 7, 27),
+    ),
+    Investment(
+      id: '91258326-7964-4b7f-8a89-9ac6c938ca9e',
+      name: 'Gold',
+      type: InvestmentType.OTHER,
+      amount: 85265,
+      date: DateTime(2025, 1, 27),
+    ),
+    Investment(
+      id: 'e8b1ee4c-64f7-4fb3-9c6a-060bf44db0e1',
+      name: 'Vedant Kolte',
+      type: InvestmentType.GOLD,
+      amount: 8565,
+      date: DateTime(2026, 2, 27),
+    ),
+  ];
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SAVINGS SCREEN — Financial Calculator + Insights & Graphs
 // ═══════════════════════════════════════════════════════════════
 class SavingsScreen extends StatefulWidget {
@@ -42,6 +111,9 @@ class _SavingsScreenState extends State<SavingsScreen>
   double? _totalInvested;
   double? _totalGain;
   List<_ChartPoint> _chartPoints = [];
+
+  // Portfolio
+  final List<Investment> _investments = Investment.seedData;
 
   @override
   void initState() {
@@ -83,7 +155,6 @@ class _SavingsScreenState extends State<SavingsScreen>
 
     if (_selectedType == 'SIP / Mutual Fund' ||
         _selectedType == 'Recurring Deposit') {
-      // SIP formula: M = P × [(1+r)^n - 1] / r × (1+r)
       final r = rate / 100 / 12;
       final n = years * 12;
       maturity = principal * ((math.pow(1 + r, n) - 1) / r) * (1 + r);
@@ -94,7 +165,6 @@ class _SavingsScreenState extends State<SavingsScreen>
         pts.add(_ChartPoint(y, m));
       }
     } else {
-      // Compound interest: A = P(1 + r/n)^(nt)
       final r = rate / 100;
       maturity = principal * math.pow(1 + r, years);
       invested = principal;
@@ -110,6 +180,10 @@ class _SavingsScreenState extends State<SavingsScreen>
       _chartPoints = pts;
     });
   }
+
+  /// Total portfolio value across all investments
+  double get _portfolioTotal =>
+      _investments.fold(0, (sum, inv) => sum + inv.amount);
 
   @override
   Widget build(BuildContext context) {
@@ -140,6 +214,148 @@ class _SavingsScreenState extends State<SavingsScreen>
                 ),
                 sliver: SliverList(
                   delegate: SliverChildListDelegate([
+                    // ── My Portfolio Card ──────────────────────
+                    _SCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'My Portfolio',
+                                      style: TextStyle(
+                                        color: T.textPrimary,
+                                        fontSize: R.fs(16),
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: -0.4,
+                                      ),
+                                    ),
+                                    SizedBox(height: R.p(2)),
+                                    Text(
+                                      '${_investments.length} investments',
+                                      style: TextStyle(
+                                        color: T.textMuted,
+                                        fontSize: R.fs(11),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: R.p(12),
+                                  vertical: R.p(8),
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      T.accent.withOpacity(0.15),
+                                      T.accentSoft.withOpacity(0.1),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(R.r(12)),
+                                  border: Border.all(
+                                    color: T.accent.withOpacity(0.3),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Total Value',
+                                      style: TextStyle(
+                                        color: T.textMuted,
+                                        fontSize: R.fs(9),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    SizedBox(height: R.p(2)),
+                                    Text(
+                                      _fmtAmount(_portfolioTotal),
+                                      style: TextStyle(
+                                        color: T.accent,
+                                        fontSize: R.fs(15),
+                                        fontWeight: FontWeight.w800,
+                                        letterSpacing: -0.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          SizedBox(height: R.p(16)),
+
+                          // Portfolio allocation mini bar
+                          _PortfolioAllocationBar(investments: _investments),
+
+                          SizedBox(height: R.p(16)),
+
+                          // Investment list
+                          ..._investments.asMap().entries.map((e) {
+                            final i = e.key;
+                            final inv = e.value;
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                bottom: i < _investments.length - 1
+                                    ? R.p(10)
+                                    : 0,
+                              ),
+                              child: _InvestmentRow(investment: inv),
+                            );
+                          }),
+
+                          SizedBox(height: R.p(14)),
+
+                          // Add investment button
+                          GestureDetector(
+                            onTap: () => _showAddInvestmentSheet(context),
+                            child: Container(
+                              height: R.p(44).clamp(40.0, 52.0),
+                              decoration: BoxDecoration(
+                                color: T.elevated,
+                                borderRadius: BorderRadius.circular(R.r(12)),
+                                border: Border.all(
+                                  color: T.border,
+                                  width: 1,
+                                  // dashed style via decoration below
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_circle_outline_rounded,
+                                    color: T.accent,
+                                    size: R.fs(16),
+                                  ),
+                                  SizedBox(width: R.p(6)),
+                                  Text(
+                                    'Add Investment',
+                                    style: TextStyle(
+                                      color: T.accent,
+                                      fontSize: R.fs(13),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    SizedBox(height: R.p(16)),
+
+                    // ── Financial Calculator Type Card ─────────
                     _SCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -154,7 +370,6 @@ class _SavingsScreenState extends State<SavingsScreen>
                             ),
                           ),
                           SizedBox(height: R.p(16)),
-                          // Investment Type dropdown
                           _InvestmentDropdown(
                             value: _selectedType,
                             items: _investmentTypes,
@@ -216,7 +431,6 @@ class _SavingsScreenState extends State<SavingsScreen>
                             keyboardType: TextInputType.number,
                           ),
                           SizedBox(height: R.p(22)),
-                          // Calculate button
                           Material(
                             color: Colors.transparent,
                             borderRadius: BorderRadius.circular(R.r(14)),
@@ -279,7 +493,6 @@ class _SavingsScreenState extends State<SavingsScreen>
                           SizedBox(height: R.p(16)),
 
                           if (_maturityAmount == null) ...[
-                            // Empty state
                             Container(
                               height: R.p(80).clamp(70.0, 100.0),
                               decoration: BoxDecoration(
@@ -318,7 +531,6 @@ class _SavingsScreenState extends State<SavingsScreen>
                               ),
                             ),
                           ] else ...[
-                            // ── Result summary ──────────────────
                             Row(
                               children: [
                                 _ResultPill(
@@ -337,8 +549,6 @@ class _SavingsScreenState extends State<SavingsScreen>
                               ],
                             ),
                             SizedBox(height: R.p(20)),
-
-                            // ── Growth Line Chart ───────────────
                             Text(
                               'Growth Over Time',
                               style: TextStyle(
@@ -361,10 +571,7 @@ class _SavingsScreenState extends State<SavingsScreen>
                                 size: Size.infinite,
                               ),
                             ),
-
                             SizedBox(height: R.p(20)),
-
-                            // ── Invested vs Returns donut ───────
                             Text(
                               'Invested vs Returns',
                               style: TextStyle(
@@ -378,10 +585,7 @@ class _SavingsScreenState extends State<SavingsScreen>
                               invested: _totalInvested!,
                               gain: _totalGain!,
                             ),
-
                             SizedBox(height: R.p(20)),
-
-                            // ── AI tip ──────────────────────────
                             _AiTip(
                               _selectedType,
                               _maturityAmount!,
@@ -404,13 +608,520 @@ class _SavingsScreenState extends State<SavingsScreen>
     );
   }
 
+  void _showAddInvestmentSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: T.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(R.r(24))),
+      ),
+      isScrollControlled: true,
+      builder: (ctx) => _AddInvestmentSheet(
+        onAdd: (inv) {
+          setState(() => _investments.insert(0, inv));
+          Navigator.pop(ctx);
+        },
+      ),
+    );
+  }
+
   String _fmt(double v) {
     if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
     if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
     if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
     return '₹${v.toStringAsFixed(0)}';
   }
+
+  String _fmtAmount(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
+  }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// PORTFOLIO ALLOCATION BAR
+// ═══════════════════════════════════════════════════════════════
+class _PortfolioAllocationBar extends StatelessWidget {
+  final List<Investment> investments;
+  const _PortfolioAllocationBar({required this.investments});
+
+  static Color _colorForType(InvestmentType t) {
+    switch (t) {
+      case InvestmentType.STOCKS:
+        return const Color(0xFF6C63FF);
+      case InvestmentType.REAL_ESTATE:
+        return const Color(0xFF43C59E);
+      case InvestmentType.GOLD:
+        return const Color(0xFFF5C842);
+      case InvestmentType.PPF:
+        return const Color(0xFF4DABF7);
+      case InvestmentType.RD:
+        return const Color(0xFFFF8C69);
+      case InvestmentType.SIP:
+        return const Color(0xFFB47EE5);
+      case InvestmentType.OTHER:
+        return const Color(0xFFADB5BD);
+    }
+  }
+
+  static String _labelForType(InvestmentType t) {
+    switch (t) {
+      case InvestmentType.STOCKS:
+        return 'Stocks';
+      case InvestmentType.REAL_ESTATE:
+        return 'Real Estate';
+      case InvestmentType.GOLD:
+        return 'Gold';
+      case InvestmentType.PPF:
+        return 'PPF';
+      case InvestmentType.RD:
+        return 'RD';
+      case InvestmentType.SIP:
+        return 'SIP';
+      case InvestmentType.OTHER:
+        return 'Other';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Group by type
+    final Map<InvestmentType, double> grouped = {};
+    final total = investments.fold(0.0, (s, i) => s + i.amount);
+    for (final inv in investments) {
+      grouped[inv.type] = (grouped[inv.type] ?? 0) + inv.amount;
+    }
+    final sorted = grouped.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Bar
+        ClipRRect(
+          borderRadius: BorderRadius.circular(R.r(6)),
+          child: SizedBox(
+            height: R.p(8),
+            child: Row(
+              children: sorted.map((e) {
+                final frac = e.value / total;
+                return Expanded(
+                  flex: (frac * 1000).round(),
+                  child: Container(
+                    color: _colorForType(e.key),
+                    margin: const EdgeInsets.only(right: 2),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        SizedBox(height: R.p(10)),
+        // Legend
+        Wrap(
+          spacing: R.p(12),
+          runSpacing: R.p(6),
+          children: sorted.map((e) {
+            final pct = (e.value / total * 100).toStringAsFixed(1);
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: R.p(8),
+                  height: R.p(8),
+                  decoration: BoxDecoration(
+                    color: _colorForType(e.key),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                SizedBox(width: R.p(4)),
+                Text(
+                  '${_labelForType(e.key)} $pct%',
+                  style: TextStyle(
+                    color: T.textMuted,
+                    fontSize: R.fs(10),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INVESTMENT ROW
+// ═══════════════════════════════════════════════════════════════
+class _InvestmentRow extends StatelessWidget {
+  final Investment investment;
+  const _InvestmentRow({required this.investment});
+
+  static IconData _iconForType(InvestmentType t) {
+    switch (t) {
+      case InvestmentType.STOCKS:
+        return Icons.show_chart_rounded;
+      case InvestmentType.REAL_ESTATE:
+        return Icons.domain_rounded;
+      case InvestmentType.GOLD:
+        return Icons.workspace_premium_rounded;
+      case InvestmentType.PPF:
+        return Icons.account_balance_rounded;
+      case InvestmentType.RD:
+        return Icons.savings_rounded;
+      case InvestmentType.SIP:
+        return Icons.trending_up_rounded;
+      case InvestmentType.OTHER:
+        return Icons.category_rounded;
+    }
+  }
+
+  static Color _colorForType(InvestmentType t) {
+    switch (t) {
+      case InvestmentType.STOCKS:
+        return const Color(0xFF6C63FF);
+      case InvestmentType.REAL_ESTATE:
+        return const Color(0xFF43C59E);
+      case InvestmentType.GOLD:
+        return const Color(0xFFF5C842);
+      case InvestmentType.PPF:
+        return const Color(0xFF4DABF7);
+      case InvestmentType.RD:
+        return const Color(0xFFFF8C69);
+      case InvestmentType.SIP:
+        return const Color(0xFFB47EE5);
+      case InvestmentType.OTHER:
+        return const Color(0xFFADB5BD);
+    }
+  }
+
+  static String _labelForType(InvestmentType t) {
+    switch (t) {
+      case InvestmentType.STOCKS:
+        return 'Stocks';
+      case InvestmentType.REAL_ESTATE:
+        return 'Real Estate';
+      case InvestmentType.GOLD:
+        return 'Gold';
+      case InvestmentType.PPF:
+        return 'PPF';
+      case InvestmentType.RD:
+        return 'Recurring Deposit';
+      case InvestmentType.SIP:
+        return 'SIP';
+      case InvestmentType.OTHER:
+        return 'Other';
+    }
+  }
+
+  String _fmtDate(DateTime d) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    return '${d.day} ${months[d.month - 1]} ${d.year}';
+  }
+
+  String _fmtAmount(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorForType(investment.type);
+
+    return Container(
+      padding: EdgeInsets.all(R.p(12)),
+      decoration: BoxDecoration(
+        color: T.elevated,
+        borderRadius: BorderRadius.circular(R.r(14)),
+        border: Border.all(color: T.border, width: 1),
+      ),
+      child: Row(
+        children: [
+          // Icon
+          Container(
+            width: R.p(40).clamp(36.0, 48.0),
+            height: R.p(40).clamp(36.0, 48.0),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(R.r(12)),
+            ),
+            child: Icon(
+              _iconForType(investment.type),
+              color: color,
+              size: R.fs(18),
+            ),
+          ),
+          SizedBox(width: R.p(12)),
+          // Info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  investment.name,
+                  style: TextStyle(
+                    color: T.textPrimary,
+                    fontSize: R.fs(14),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: R.p(2)),
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: R.p(6),
+                        vertical: R.p(2),
+                      ),
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(R.r(4)),
+                      ),
+                      child: Text(
+                        _labelForType(investment.type),
+                        style: TextStyle(
+                          color: color,
+                          fontSize: R.fs(9),
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: R.p(6)),
+                    Text(
+                      _fmtDate(investment.date),
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(10)),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Amount
+          Text(
+            _fmtAmount(investment.amount),
+            style: TextStyle(
+              color: T.textPrimary,
+              fontSize: R.fs(14),
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ADD INVESTMENT BOTTOM SHEET
+// ═══════════════════════════════════════════════════════════════
+class _AddInvestmentSheet extends StatefulWidget {
+  final ValueChanged<Investment> onAdd;
+  const _AddInvestmentSheet({required this.onAdd});
+
+  @override
+  State<_AddInvestmentSheet> createState() => _AddInvestmentSheetState();
+}
+
+class _AddInvestmentSheetState extends State<_AddInvestmentSheet> {
+  final _nameCtrl = TextEditingController();
+  final _amountCtrl = TextEditingController();
+  InvestmentType _type = InvestmentType.STOCKS;
+
+  static const _typeLabels = {
+    InvestmentType.STOCKS: 'Stocks',
+    InvestmentType.REAL_ESTATE: 'Real Estate',
+    InvestmentType.GOLD: 'Gold',
+    InvestmentType.PPF: 'PPF',
+    InvestmentType.RD: 'Recurring Deposit',
+    InvestmentType.SIP: 'SIP / Mutual Fund',
+    InvestmentType.OTHER: 'Other',
+  };
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameCtrl.text.trim();
+    final amount = double.tryParse(_amountCtrl.text) ?? 0;
+    if (name.isEmpty || amount <= 0) return;
+
+    widget.onAdd(
+      Investment(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        name: name,
+        type: _type,
+        amount: amount,
+        date: DateTime.now(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: EdgeInsets.all(R.p(24)),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: R.p(40),
+                height: R.p(4),
+                decoration: BoxDecoration(
+                  color: T.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            SizedBox(height: R.p(20)),
+            Text(
+              'Add Investment',
+              style: TextStyle(
+                color: T.textPrimary,
+                fontSize: R.fs(18),
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
+            SizedBox(height: R.p(20)),
+            _CalcField(
+              label: 'Name',
+              hint: 'e.g. HDFC Nifty50',
+              controller: _nameCtrl,
+              keyboardType: TextInputType.text,
+            ),
+            SizedBox(height: R.p(14)),
+            _CalcField(
+              label: 'Amount (₹)',
+              hint: 'e.g. 50000',
+              controller: _amountCtrl,
+              keyboardType: TextInputType.number,
+            ),
+            SizedBox(height: R.p(14)),
+            // Type selector chips
+            Text(
+              'Type',
+              style: TextStyle(
+                color: T.textSecondary,
+                fontSize: R.fs(13),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            SizedBox(height: R.p(8)),
+            Wrap(
+              spacing: R.p(8),
+              runSpacing: R.p(8),
+              children: _typeLabels.entries.map((e) {
+                final selected = e.key == _type;
+                return GestureDetector(
+                  onTap: () => setState(() => _type = e.key),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: R.p(12),
+                      vertical: R.p(7),
+                    ),
+                    decoration: BoxDecoration(
+                      color: selected ? T.accent.withOpacity(0.15) : T.elevated,
+                      borderRadius: BorderRadius.circular(R.r(20)),
+                      border: Border.all(
+                        color: selected ? T.accent.withOpacity(0.5) : T.border,
+                        width: selected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      e.value,
+                      style: TextStyle(
+                        color: selected ? T.accent : T.textSecondary,
+                        fontSize: R.fs(12),
+                        fontWeight: selected
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            SizedBox(height: R.p(24)),
+            Material(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(R.r(14)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(R.r(14)),
+                onTap: _submit,
+                child: Ink(
+                  height: R.p(52).clamp(46.0, 58.0),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [T.accent, T.accentSoft],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                    borderRadius: BorderRadius.circular(R.r(14)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: T.accent.withOpacity(0.38),
+                        blurRadius: 20,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Text(
+                      'Add to Portfolio',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: R.fs(15),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: R.p(8)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// (All widgets below are unchanged from original)
+// ═══════════════════════════════════════════════════════════════
 
 class _InvestmentDropdown extends StatelessWidget {
   final String value;
@@ -431,7 +1142,6 @@ class _InvestmentDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Trigger
         GestureDetector(
           onTap: onToggle,
           child: AnimatedContainer(
@@ -478,7 +1188,6 @@ class _InvestmentDropdown extends StatelessWidget {
             ),
           ),
         ),
-        // Options
         AnimatedSize(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
@@ -549,9 +1258,6 @@ class _InvestmentDropdown extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// CALCULATOR INPUT FIELD
-// ═══════════════════════════════════════════════════════════════
 class _CalcField extends StatefulWidget {
   final String label, hint;
   final TextEditingController controller;
@@ -645,9 +1351,6 @@ class _CalcFieldState extends State<_CalcField> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// RESULT PILL
-// ═══════════════════════════════════════════════════════════════
 class _ResultPill extends StatelessWidget {
   final String label, value;
   final Color color;
@@ -694,9 +1397,6 @@ class _ResultPill extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// INVESTED VS RETURN DONUT
-// ═══════════════════════════════════════════════════════════════
 class _InvestedVsReturnDonut extends StatelessWidget {
   final double invested, gain;
   const _InvestedVsReturnDonut({required this.invested, required this.gain});
@@ -775,9 +1475,6 @@ class _DonutLegend extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AI TIP
-// ═══════════════════════════════════════════════════════════════
 class _AiTip extends StatelessWidget {
   final String type;
   final double maturity, gain, invested;
@@ -858,9 +1555,6 @@ class _AiTip extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// LINE CHART PAINTER
-// ═══════════════════════════════════════════════════════════════
 class _ChartPoint {
   final int year;
   final double value;
@@ -884,7 +1578,7 @@ class _LineChartPainter extends CustomPainter {
     if (points.isEmpty) return;
 
     final maxVal = points.map((p) => p.value).reduce(math.max);
-    final minVal = 0.0;
+    const minVal = 0.0;
     final range = maxVal - minVal;
     const padTop = 16.0;
     const padBottom = 24.0;
@@ -894,7 +1588,6 @@ class _LineChartPainter extends CustomPainter {
     final chartW = size.width - padLeft - padRight;
     final chartH = size.height - padTop - padBottom;
 
-    // Grid lines
     final gridPaint = Paint()
       ..color = gridColor
       ..strokeWidth = 1;
@@ -907,7 +1600,6 @@ class _LineChartPainter extends CustomPainter {
       );
     }
 
-    // Map point to canvas offset
     Offset toOffset(int idx) {
       final x = padLeft + (idx / (points.length - 1)) * chartW;
       final y =
@@ -915,7 +1607,6 @@ class _LineChartPainter extends CustomPainter {
       return Offset(x, y);
     }
 
-    // Fill path
     final fillPath = Path();
     fillPath.moveTo(padLeft, padTop + chartH);
     for (int i = 0; i < points.length; i++) {
@@ -932,7 +1623,6 @@ class _LineChartPainter extends CustomPainter {
     fillPath.close();
     canvas.drawPath(fillPath, Paint()..color = fillColor);
 
-    // Line path
     final linePaint = Paint()
       ..color = lineColor
       ..strokeWidth = 2.5
@@ -951,10 +1641,8 @@ class _LineChartPainter extends CustomPainter {
     }
     canvas.drawPath(linePath, linePaint);
 
-    // Dots + year labels (show every 2nd or evenly spaced)
     final step = (points.length / 5).ceil().clamp(1, points.length);
     final dotPaint = Paint()..color = lineColor;
-    final bgPaint = Paint()..color = gridColor.withOpacity(0.0);
     final tp = TextPainter(textDirection: TextDirection.ltr);
 
     for (int i = 0; i < points.length; i++) {
@@ -962,8 +1650,6 @@ class _LineChartPainter extends CustomPainter {
       final o = toOffset(i);
       canvas.drawCircle(o, 4, dotPaint);
       canvas.drawCircle(o, 2.5, Paint()..color = Colors.white);
-
-      // Year label below chart
       tp.text = TextSpan(
         text: 'Y${points[i].year}',
         style: TextStyle(color: labelColor, fontSize: 9),
@@ -980,9 +1666,6 @@ class _LineChartPainter extends CustomPainter {
   bool shouldRepaint(covariant _LineChartPainter old) => old.points != points;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SIMPLE DONUT PAINTER
-// ═══════════════════════════════════════════════════════════════
 class _DonutSeg {
   final double frac;
   final Color color;
@@ -1031,9 +1714,6 @@ class _SimpleDonut extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter _) => true;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SHARED WIDGETS
-// ═══════════════════════════════════════════════════════════════
 class _SCard extends StatelessWidget {
   final Widget child;
   const _SCard({required this.child});

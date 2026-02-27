@@ -9,7 +9,7 @@ import { subDays, startOfMonth } from "date-fns";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-export async function getCurrentBudget(accountId) {
+export async function getCurrentBudget(userIdOrIgnore) {
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
@@ -42,7 +42,6 @@ export async function getCurrentBudget(accountId) {
           gte: startOfCurrentMonth,
           lte: endOfMonth,
         },
-        accountId,
       },
       _sum: {
         amount: true,

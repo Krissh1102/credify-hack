@@ -41,6 +41,7 @@ dependencies:
   supabase_flutter: ^2.12.0
   clerk_auth: ^0.0.14-beta
   clerk_flutter: ^0.0.14-beta
+  provider: ^6.1.5+1
 
 dev_dependencies:
   flutter_test:

@@ -83,7 +83,7 @@ export function BudgetProgress({ initialBudget, currentExpenses }) {
         <div className="flex-1">
           <div className="flex items-center justify-between w-full">
             <CardTitle className="text-sm font-medium">
-              Monthly Budget (Default Account)
+              Monthly Budget
             </CardTitle>
             <Button
               variant="outline"
@@ -159,12 +159,19 @@ export function BudgetProgress({ initialBudget, currentExpenses }) {
           <div className="space-y-2">
             <Progress
               value={percentUsed}
-              extraStyles={`${percentUsed >= 90
-                ? "bg-red-500"
-                : percentUsed >= 75
-                  ? "bg-yellow-500"
-                  : "bg-green-500"
-                }`}
+              // extraStyles={`${percentUsed >= 90
+              //   ? "bg-red-500"
+              //   : percentUsed >= 75
+              //     ? "bg-yellow-500"
+              //     : "bg-green-500"
+              //   }`}
+              className={`${
+                percentUsed >= 90
+                  ? "bg-red-500"
+                  : percentUsed >= 75
+                    ? "bg-yellow-500"
+                    : "bg-green-500"
+              }`}
             />
             <p className="text-xs text-muted-foreground text-right">
               {percentUsed.toFixed(1)}% used
