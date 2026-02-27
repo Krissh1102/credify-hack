@@ -59,16 +59,9 @@ class _DashboardScreenState extends State<DashboardScreen>
           ),
           slivers: [
             SliverPadding(
-              padding: EdgeInsets.fromLTRB(
-                R.p(20),
-                R.p(10),
-                R.p(20),
-                R.p(24),
-              ),
+              padding: EdgeInsets.fromLTRB(R.p(20), R.p(10), R.p(20), R.p(24)),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  _DashHeader(),
-                  SizedBox(height: R.p(20)),
                   _AccountCard(),
                   SizedBox(height: R.p(16)),
                   _QuickStats(),
@@ -138,8 +131,7 @@ class _ThemeToggle extends StatelessWidget {
             AnimatedAlign(
               duration: const Duration(milliseconds: 280),
               curve: Curves.easeInOutBack,
-              alignment:
-                  isDark ? Alignment.centerRight : Alignment.centerLeft,
+              alignment: isDark ? Alignment.centerRight : Alignment.centerLeft,
               child: Container(
                 width: knobSize,
                 height: knobSize,
@@ -158,9 +150,7 @@ class _ThemeToggle extends StatelessWidget {
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
                     child: Icon(
-                      isDark
-                          ? Icons.nightlight_round
-                          : Icons.wb_sunny_rounded,
+                      isDark ? Icons.nightlight_round : Icons.wb_sunny_rounded,
                       key: ValueKey(isDark),
                       size: knobSize * 0.55,
                       color: isDark
@@ -178,131 +168,6 @@ class _ThemeToggle extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// HEADER
-// ═══════════════════════════════════════════════════════════════
-class _DashHeader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final av = R.p(44).clamp(38.0, 52.0);
-    return Row(
-      children: [
-        // Avatar
-        Container(
-          width: av,
-          height: av,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [T.accent, T.accentSoft],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: T.accent.withOpacity(0.35),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Center(
-            child: Text(
-              'V',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: R.fs(18),
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.5,
-              ),
-            ),
-          ),
-        ),
-        SizedBox(width: R.p(12)),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Good Evening,',
-                style: TextStyle(
-                  color: T.textSecondary,
-                  fontSize: R.fs(11),
-                  letterSpacing: 0.3,
-                ),
-              ),
-              SizedBox(height: R.p(2)),
-              Text(
-                'Vedant Sanjay Kolte',
-                style: TextStyle(
-                  color: T.textPrimary,
-                  fontSize: R.fs(15),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.4,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-        const _ThemeToggle(),
-        SizedBox(width: R.p(8)),
-        _NIcon(icon: Icons.notifications_outlined, badge: true),
-      ],
-    );
-  }
-}
-
-class _NIcon extends StatelessWidget {
-  final IconData icon;
-  final bool badge;
-  const _NIcon({required this.icon, this.badge = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final s = R.p(38).clamp(34.0, 44.0);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Material(
-          color: T.elevated,
-          borderRadius: BorderRadius.circular(R.r(12)),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(R.r(12)),
-            onTap: () {},
-            child: Container(
-              width: s,
-              height: s,
-              decoration: BoxDecoration(
-                border: Border.all(color: T.border, width: 1),
-                borderRadius: BorderRadius.circular(R.r(12)),
-              ),
-              child: Icon(icon, color: T.textSecondary, size: R.fs(18)),
-            ),
-          ),
-        ),
-        if (badge)
-          Positioned(
-            top: -2,
-            right: -2,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(
-                color: T.red,
-                shape: BoxShape.circle,
-                border: Border.all(color: T.bg, width: 1.5),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ACCOUNT CARD
-// ═══════════════════════════════════════════════════════════════
 class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -350,10 +215,7 @@ class _AccountCard extends StatelessWidget {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
-                  colors: [
-                    T.accentSoft.withOpacity(0.14),
-                    Colors.transparent,
-                  ],
+                  colors: [T.accentSoft.withOpacity(0.14), Colors.transparent],
                 ),
               ),
             ),
@@ -431,10 +293,7 @@ class _AccountCard extends StatelessWidget {
                     SizedBox(width: R.p(8)),
                     Text(
                       'vs last month',
-                      style: TextStyle(
-                        color: T.textMuted,
-                        fontSize: R.fs(11),
-                      ),
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
                     ),
                   ],
                 ),
@@ -582,12 +441,7 @@ class _QuickStats extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stats = [
-      {
-        'label': 'EMI Due',
-        'value': '₹3,200',
-        'sub': '5 days left',
-        'c': T.red,
-      },
+      {'label': 'EMI Due', 'value': '₹3,200', 'sub': '5 days left', 'c': T.red},
       {'label': 'Goal', 'value': '68%', 'sub': 'Complete', 'c': T.green},
       {
         'label': 'Invest',
@@ -603,8 +457,7 @@ class _QuickStats extends StatelessWidget {
         return Expanded(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 320),
-            margin:
-                EdgeInsets.only(right: i < stats.length - 1 ? R.p(10) : 0),
+            margin: EdgeInsets.only(right: i < stats.length - 1 ? R.p(10) : 0),
             padding: EdgeInsets.symmetric(
               horizontal: R.p(12),
               vertical: R.p(14),
@@ -839,10 +692,7 @@ class _ExpenseRow extends StatelessWidget {
               const Spacer(),
               Text(
                 'Feb 2026',
-                style: TextStyle(
-                  color: T.textSecondary,
-                  fontSize: R.fs(12),
-                ),
+                style: TextStyle(color: T.textSecondary, fontSize: R.fs(12)),
               ),
             ],
           ),
@@ -959,10 +809,7 @@ class _PiePainter extends CustomPainter {
       canvas.save();
       canvas.translate(math.cos(mid) * 2, math.sin(mid) * 2);
       final path = Path();
-      path.moveTo(
-        cx + innerR * math.cos(angle),
-        cy + innerR * math.sin(angle),
-      );
+      path.moveTo(cx + innerR * math.cos(angle), cy + innerR * math.sin(angle));
       path.arcTo(
         Rect.fromCircle(center: Offset(cx, cy), radius: outerR),
         angle,
@@ -1099,9 +946,7 @@ class _RecentTransactions extends StatelessWidget {
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.vertical(
-                        top: i == 0
-                            ? Radius.circular(R.r(20))
-                            : Radius.zero,
+                        top: i == 0 ? Radius.circular(R.r(20)) : Radius.zero,
                         bottom: i == txns.length - 1
                             ? Radius.circular(R.r(20))
                             : Radius.zero,
@@ -1119,20 +964,14 @@ class _RecentTransactions extends StatelessWidget {
                               height: R.p(42).clamp(36.0, 48.0),
                               decoration: BoxDecoration(
                                 color: c.withOpacity(0.12),
-                                borderRadius:
-                                    BorderRadius.circular(R.r(14)),
+                                borderRadius: BorderRadius.circular(R.r(14)),
                               ),
-                              child: Icon(
-                                t.icon,
-                                color: c,
-                                size: R.fs(19),
-                              ),
+                              child: Icon(t.icon, color: c, size: R.fs(19)),
                             ),
                             SizedBox(width: R.p(12)),
                             Expanded(
                               child: Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     t.title,
@@ -1193,8 +1032,7 @@ class _RecentTransactions extends StatelessWidget {
                   ),
                   if (i < txns.length - 1)
                     Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: R.p(16)),
+                      padding: EdgeInsets.symmetric(horizontal: R.p(16)),
                       child: Divider(
                         color: T.border.withOpacity(0.6),
                         height: 1,
