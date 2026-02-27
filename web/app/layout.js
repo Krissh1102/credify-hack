@@ -27,7 +27,7 @@ export default function RootLayout({ children }) {
         >
           <ClerkProvider>
             <Header />
-            <CopilotKit publicApiKey="ck_pub_faec2cff9fb6283e3cdb6997413a4fbe">
+            <CopilotKit runtimeUrl="/api/copilot">
               <main className="min-h-screen">{children}</main>
             </CopilotKit>
             <Toaster />
