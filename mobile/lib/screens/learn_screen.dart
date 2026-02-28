@@ -28,7 +28,7 @@ class _Investment {
   });
 }
 
-const _kGeminiApiKey = 'AIzaSyASQQ9tShvNlfZvt6yl0rcp4POvVJkusmc';
+const _kGeminiApiKey = 'AIzaSyDAYaaPaPatH60G5rM_62qzmTZULRPEKbo';
 const _kGeminiModel = 'gemini-2.5-flash';
 const _kGeminiUrl =
     'https://generativelanguage.googleapis.com/v1beta/models/$_kGeminiModel:generateContent?key=$_kGeminiApiKey';

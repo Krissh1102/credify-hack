@@ -1,4 +1,3 @@
-import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/services/transaction_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -39,13 +38,9 @@ class TransactionProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      String? userId = clerkUserId;
-
-      // If no userId passed, fall back to fetching all (dev mode)
-      // In production always pass clerkUserId from the widget tree
       String? internalId;
-      if (userId != null && userId.isNotEmpty) {
-        internalId = await _resolveInternalId(userId);
+      if (clerkUserId != null && clerkUserId.isNotEmpty) {
+        internalId = await _resolveInternalId(clerkUserId);
       }
 
       final all = internalId != null
@@ -53,15 +48,13 @@ class TransactionProvider extends ChangeNotifier {
           : <Map<String, dynamic>>[];
 
       _transactions = all;
-      // ✅ Split by the `type` column — INCOME vs EXPENSE
-      _incomeTransactions = all
-          .where((t) => (t['type'] as String?) == 'INCOME')
-          .toList();
-      _expenseTransactions = all
-          .where((t) => (t['type'] as String?) == 'EXPENSE')
-          .toList();
+      _incomeTransactions =
+          all.where((t) => (t['type'] as String?) == 'INCOME').toList();
+      _expenseTransactions =
+          all.where((t) => (t['type'] as String?) == 'EXPENSE').toList();
     } catch (e) {
       _error = e.toString();
+      debugPrint('❌ loadTransactions error: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -69,32 +62,43 @@ class TransactionProvider extends ChangeNotifier {
   }
 
   // ── Create transaction ────────────────────────────────────────
-  // Matches the Prisma model exactly:
-  //   id, type, amount, description, date, category,
-  //   receiptUrl, isRecurring, recurringInterval,
-  //   nextRecurringDate, status
   Future<bool> createTransaction({
     required String clerkUserId,
     required String accountId,
-    required String type, // 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'INVESTMENT'
+    required String type,       // 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'INVESTMENT'
     required double amount,
     required String category,
-    required String date, // dd/MM/yyyy from picker
+    required String date,       // ✅ Already ISO8601 from scan_screen.dart — do NOT re-parse
     String description = '',
     bool isRecurring = false,
-    String? recurringInterval, // 'MONTHLY' etc.
+    String? recurringInterval,
     DateTime? nextRecurringDate,
     String? receiptUrl,
   }) async {
     try {
       final internalId = await _resolveInternalId(clerkUserId);
-      if (internalId == null) return false;
+      if (internalId == null) {
+        debugPrint('❌ createTransaction: could not resolve internal user ID for $clerkUserId');
+        return false;
+      }
 
-      // Convert dd/MM/yyyy → ISO8601 for Supabase
-      final parts = date.split('/');
-      final isoDate = parts.length == 3
-          ? '${parts[2]}-${parts[1].padLeft(2, '0')}-${parts[0].padLeft(2, '0')}T00:00:00.000Z'
-          : DateTime.now().toIso8601String();
+      if (accountId.isEmpty) {
+        debugPrint('❌ createTransaction: accountId is empty');
+        return false;
+      }
+
+      // ✅ date is already ISO8601 — just ensure it ends with Z for Supabase
+      final isoDate = _normalizeIsoDate(date);
+
+      debugPrint('🔍 createTransaction:');
+      debugPrint('  internalUserId : $internalId');
+      debugPrint('  accountId      : $accountId');
+      debugPrint('  type           : $type');
+      debugPrint('  amount         : $amount');
+      debugPrint('  category       : $category');
+      debugPrint('  date (iso)     : $isoDate');
+      debugPrint('  description    : $description');
+      debugPrint('  isRecurring    : $isRecurring');
 
       final result = await _service.createTransaction(
         userId: internalId,
@@ -105,9 +109,7 @@ class TransactionProvider extends ChangeNotifier {
         date: isoDate,
         description: description,
         isRecurring: isRecurring,
-        recurringInterval: isRecurring
-            ? (recurringInterval ?? 'MONTHLY')
-            : null,
+        recurringInterval: isRecurring ? (recurringInterval ?? 'MONTHLY') : null,
         nextRecurringDate: nextRecurringDate,
         receiptUrl: receiptUrl,
       );
@@ -121,13 +123,32 @@ class TransactionProvider extends ChangeNotifier {
           _expenseTransactions.insert(0, result);
         }
         notifyListeners();
+        debugPrint('✅ Transaction created: ${result['id']}');
         return true;
       }
+
+      debugPrint('❌ createTransaction: service returned null');
       return false;
     } catch (e) {
       _error = e.toString();
+      debugPrint('❌ createTransaction error: $e');
       notifyListeners();
       return false;
+    }
+  }
+
+  /// Ensures the ISO date string is in a format Supabase accepts.
+  /// Handles both:
+  ///   2026-02-28T00:00:00.000     → 2026-02-28T00:00:00.000Z
+  ///   2026-02-28T00:00:00.000Z    → unchanged
+  String _normalizeIsoDate(String date) {
+    if (date.isEmpty) return DateTime.now().toUtc().toIso8601String();
+    try {
+      final d = DateTime.parse(date);
+      return d.toUtc().toIso8601String(); 
+    } catch (_) {
+      debugPrint('⚠️ Could not parse date "$date", using now');
+      return DateTime.now().toUtc().toIso8601String();
     }
   }
 

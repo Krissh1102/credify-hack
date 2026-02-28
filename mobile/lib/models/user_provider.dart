@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-// ═══════════════════════════════════════════════════════════════
-// USER MODEL
-// ═══════════════════════════════════════════════════════════════
+
 class AppUser {
   final String id;
   final String clerkUserId;

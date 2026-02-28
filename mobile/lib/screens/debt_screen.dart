@@ -507,14 +507,16 @@ class _StatGrid extends StatelessWidget {
       ),
     ];
 
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: R.p(12),
-      mainAxisSpacing: R.p(12),
-      childAspectRatio: 1.55,
-      children: stats.map((s) => _StatCard(s)).toList(),
+    return SizedBox(
+      child: GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        crossAxisSpacing: R.p(12),
+        mainAxisSpacing: R.p(12),
+        childAspectRatio: 1.2,
+        children: stats.map((s) => _StatCard(s)).toList(),
+      ),
     );
   }
 
@@ -542,6 +544,7 @@ class _StatCard extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 320),
       padding: EdgeInsets.all(R.p(14)),
+
       decoration: BoxDecoration(
         color: T.surface,
         borderRadius: BorderRadius.circular(R.r(18)),
@@ -561,7 +564,7 @@ class _StatCard extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: R.p(28).clamp(24.0, 34.0),
+                width: R.p(18).clamp(24.0, 34.0),
                 height: R.p(18).clamp(24.0, 34.0),
                 decoration: BoxDecoration(
                   color: data.color.withOpacity(0.14),

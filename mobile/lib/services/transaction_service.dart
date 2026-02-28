@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 class TransactionService {
   static final TransactionService instance = TransactionService._internal();
@@ -25,6 +26,7 @@ class TransactionService {
       final response = await _supabase
           .from('transactions')
           .insert({
+            'id': const Uuid().v4(),
             'userId': userId,
             'accountId': accountId,
             'type': type,
@@ -37,6 +39,8 @@ class TransactionService {
             'recurringInterval': recurringInterval,
             'nextRecurringDate': nextRecurringDate?.toIso8601String(),
             'status': 'COMPLETED',
+            'createdAt': DateTime.now().toUtc().toIso8601String(),
+            'updatedAt': DateTime.now().toUtc().toIso8601String(),
           })
           .select()
           .single();

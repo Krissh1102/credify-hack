@@ -42,6 +42,9 @@ dependencies:
   clerk_auth: ^0.0.14-beta
   clerk_flutter: ^0.0.14-beta
   provider: ^6.1.5+1
+  uuid: ^4.5.3
+  record: ^6.2.0
+  flutter_local_notifications: ^20.1.0
 
 dev_dependencies:
   flutter_test:
