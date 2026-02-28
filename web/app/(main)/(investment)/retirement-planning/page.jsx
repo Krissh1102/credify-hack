@@ -228,8 +228,9 @@ const RetirementPlanning = () => {
       dot={false}
       activeDot={{ r: 6 }}
     />
+    <CartesianGrid strokeDasharray="3 3" vertical={false} />
   </LineChart>
-  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+  
 </ResponsiveContainer>
               </div>
             </>

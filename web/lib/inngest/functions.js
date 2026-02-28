@@ -1,7 +1,7 @@
 import { sendEmail } from "@/actions/send-email";
 import { db } from "../prisma";
 import { inngest } from "./client";
-import EmailTemplate from "@/email/template";
+import EmailTemplate from "@/emails/template";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export const checkBudgetAlert = inngest.createFunction(

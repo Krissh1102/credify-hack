@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic"; // Import dynamic
 import { CopilotKit, useCopilotReadable } from "@copilotkit/react-core";
 import "@copilotkit/react-ui/styles.css";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
+import * as pdfjsLib from "pdfjs-dist";
 
 // Dynamically import CopilotChat and disable SSR for it
 const CopilotChat = dynamic(
@@ -12,7 +12,7 @@ const CopilotChat = dynamic(
   { ssr: false }
 );
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist%404.4.168/legacy/build/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js';
 
 function EducationContent() {
   const [pdfText, setPdfText] = useState("");
