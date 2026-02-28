@@ -1,7 +1,125 @@
 import 'dart:math' as math;
 
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/theme/theme.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+// ═══════════════════════════════════════════════════════════════
+// DATA MODEL — Loan entry (from Supabase "loans" table)
+// ═══════════════════════════════════════════════════════════════
+enum LoanType { AUTO, HOME, PERSONAL, CREDIT_CARD, EDUCATION, OTHER }
+
+enum LoanStatus { ACTIVE, CLOSED, DEFAULTED }
+
+class Loan {
+  final String id;
+  final String name;
+  final String lender;
+  final LoanType type;
+  final double principalAmount;
+  final double outstandingBalance;
+  final double interestRate;
+  final int tenureInMonths;
+  final double emiAmount;
+  final DateTime issueDate;
+  final DateTime? nextPaymentDate;
+  final LoanStatus status;
+
+  const Loan({
+    required this.id,
+    required this.name,
+    required this.lender,
+    required this.type,
+    required this.principalAmount,
+    required this.outstandingBalance,
+    required this.interestRate,
+    required this.tenureInMonths,
+    required this.emiAmount,
+    required this.issueDate,
+    this.nextPaymentDate,
+    required this.status,
+  });
+
+  static LoanType parseType(String raw) {
+    switch (raw.toUpperCase()) {
+      case 'AUTO':
+        return LoanType.AUTO;
+      case 'HOME':
+        return LoanType.HOME;
+      case 'PERSONAL':
+        return LoanType.PERSONAL;
+      case 'CREDIT_CARD':
+        return LoanType.CREDIT_CARD;
+      case 'EDUCATION':
+        return LoanType.EDUCATION;
+      default:
+        return LoanType.OTHER;
+    }
+  }
+
+  static LoanStatus parseStatus(String raw) {
+    switch (raw.toUpperCase()) {
+      case 'ACTIVE':
+        return LoanStatus.ACTIVE;
+      case 'CLOSED':
+        return LoanStatus.CLOSED;
+      case 'DEFAULTED':
+        return LoanStatus.DEFAULTED;
+      default:
+        return LoanStatus.ACTIVE;
+    }
+  }
+
+  factory Loan.fromMap(Map<String, dynamic> m) {
+    return Loan(
+      id: m['id'] as String,
+      name: m['name'] as String,
+      lender: m['lender'] as String? ?? 'Unknown',
+      type: Loan.parseType(m['type'] as String? ?? 'OTHER'),
+      principalAmount: _parseDecimal(m['principalAmount']),
+      outstandingBalance: _parseDecimal(m['outstandingBalance']),
+      interestRate: _parseDecimal(m['interestRate']),
+      tenureInMonths: (m['tenureInMonths'] as num?)?.toInt() ?? 0,
+      emiAmount: _parseDecimal(m['emiAmount']),
+      issueDate: m['issueDate'] != null
+          ? DateTime.parse(m['issueDate'] as String)
+          : DateTime.now(),
+      nextPaymentDate: m['nextPaymentDate'] != null
+          ? DateTime.parse(m['nextPaymentDate'] as String)
+          : null,
+      status: Loan.parseStatus(m['status'] as String? ?? 'ACTIVE'),
+    );
+  }
+
+  static double _parseDecimal(dynamic value) {
+    if (value == null) return 0.0;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  double get paidOffProgress {
+    if (principalAmount == 0) return 0;
+    return ((principalAmount - outstandingBalance) / principalAmount).clamp(
+      0.0,
+      1.0,
+    );
+  }
+
+  DateTime get projectedPayoffDate {
+    return issueDate.add(Duration(days: tenureInMonths * 30));
+  }
+
+  String get payoffYear {
+    final payoff = projectedPayoffDate;
+    final now = DateTime.now();
+    if (status == LoanStatus.CLOSED) return 'Closed';
+    if (outstandingBalance == 0) return 'Paid Off';
+    if (payoff.isBefore(now)) return 'Overdue';
+    return payoff.year.toString();
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // DEBT SCREEN
@@ -19,6 +137,13 @@ class _DebtScreenState extends State<DebtScreen>
   late Animation<double> _fade;
   late Animation<Offset> _slide;
 
+  // Loans data
+  List<Loan> _loans = [];
+  bool _loadingLoans = true;
+  String? _loadError;
+
+  static SupabaseClient get _db => Supabase.instance.client;
+
   @override
   void initState() {
     super.initState();
@@ -32,12 +157,109 @@ class _DebtScreenState extends State<DebtScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
     _ac.forward();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadLoans());
   }
 
   @override
   void dispose() {
     _ac.dispose();
     super.dispose();
+  }
+
+  // ─── Supabase data fetching ───────────────────────────────────
+
+  Future<void> _loadLoans() async {
+    setState(() {
+      _loadingLoans = true;
+      _loadError = null;
+    });
+
+    try {
+      final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
+      if (clerkUserId.isEmpty) {
+        setState(() {
+          _loadError = 'Not authenticated.';
+          _loadingLoans = false;
+        });
+        return;
+      }
+
+      // Resolve internal UUID from clerk user ID
+      final userRows = await _db
+          .from('users')
+          .select('id')
+          .eq('clerkUserId', clerkUserId)
+          .limit(1);
+
+      if ((userRows as List).isEmpty) {
+        setState(() {
+          _loadError = 'User profile not found.';
+          _loadingLoans = false;
+        });
+        return;
+      }
+
+      final internalId =
+          (userRows.first as Map<String, dynamic>)['id'] as String;
+
+      // Try with internal UUID first
+      List<Loan> fetched = await _fetchByUserId(internalId);
+
+      // Fallback: try with clerk user ID directly
+      if (fetched.isEmpty) {
+        fetched = await _fetchByUserId(clerkUserId);
+      }
+
+      setState(() {
+        _loans = fetched;
+        _loadingLoans = false;
+      });
+    } catch (e) {
+      debugPrint('[DebtScreen] error loading loans: $e');
+      setState(() {
+        _loadError = 'Failed to load loans.';
+        _loadingLoans = false;
+      });
+    }
+  }
+
+  Future<List<Loan>> _fetchByUserId(String userId) async {
+    try {
+      final rows = await _db
+          .from('loans')
+          .select()
+          .eq('userId', userId)
+          .order('outstandingBalance', ascending: false)
+          .limit(100);
+      final list = rows as List;
+      if (list.isNotEmpty) {
+        return list
+            .map((r) => Loan.fromMap(r as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[DebtScreen] fetchByUserId($userId) failed: $e');
+    }
+    return [];
+  }
+
+  // ─── Computed stats ───────────────────────────────────────────
+
+  double get _totalDebt =>
+      _loans.fold(0.0, (sum, l) => sum + l.outstandingBalance);
+
+  double get _totalPrincipal =>
+      _loans.fold(0.0, (sum, l) => sum + l.principalAmount);
+
+  double get _totalPaidOff => _totalPrincipal - _totalDebt;
+
+  Map<LoanType, double> get _debtComposition {
+    final Map<LoanType, double> comp = {};
+    for (final loan in _loans) {
+      comp[loan.type] = (comp[loan.type] ?? 0) + loan.outstandingBalance;
+    }
+    return comp;
   }
 
   @override
@@ -61,22 +283,137 @@ class _DebtScreenState extends State<DebtScreen>
                 delegate: SliverChildListDelegate([
                   _DebtOverviewTitle(),
                   SizedBox(height: R.p(14)),
-                  _StatGrid(),
-                  SizedBox(height: R.p(16)),
-                  _DebtCompositionCard(),
-                  SizedBox(height: R.p(16)),
-                  _DebtReductionChart(),
-                  SizedBox(height: R.p(16)),
-                  _ProjectedPayoffCard(),
-                  SizedBox(height: R.p(16)),
-                  _AiInsightsCard(),
-                  SizedBox(height: R.p(8)),
+                  _loadingLoans
+                      ? _buildLoadingState()
+                      : _loadError != null
+                      ? _buildErrorState()
+                      : _buildContent(),
                 ]),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return _SCard(
+      child: SizedBox(
+        height: R.p(200),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: T.accent, strokeWidth: 2.5),
+              SizedBox(height: R.p(12)),
+              Text(
+                'Loading your debt information...',
+                style: TextStyle(color: T.textMuted, fontSize: R.fs(12)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return _SCard(
+      child: SizedBox(
+        height: R.p(200),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: T.textMuted,
+                size: R.fs(32),
+              ),
+              SizedBox(height: R.p(12)),
+              Text(
+                _loadError ?? 'Something went wrong.',
+                style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+              ),
+              SizedBox(height: R.p(16)),
+              GestureDetector(
+                onTap: _loadLoans,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: R.p(20),
+                    vertical: R.p(10),
+                  ),
+                  decoration: BoxDecoration(
+                    color: T.accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(R.r(10)),
+                  ),
+                  child: Text(
+                    'Retry',
+                    style: TextStyle(
+                      color: T.accent,
+                      fontSize: R.fs(14),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    if (_loans.isEmpty) {
+      return _SCard(
+        child: SizedBox(
+          height: R.p(200),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.check_circle_outline_rounded,
+                  color: T.green,
+                  size: R.fs(48),
+                ),
+                SizedBox(height: R.p(12)),
+                Text(
+                  'No debts found!',
+                  style: TextStyle(
+                    color: T.textPrimary,
+                    fontSize: R.fs(16),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                SizedBox(height: R.p(6)),
+                Text(
+                  'You\'re debt-free. Keep it up!',
+                  style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        _StatGrid(totalDebt: _totalDebt, totalPaidOff: _totalPaidOff),
+        SizedBox(height: R.p(16)),
+        _DebtCompositionCard(
+          totalDebt: _totalDebt,
+          composition: _debtComposition,
+        ),
+        SizedBox(height: R.p(16)),
+        _LoansList(loans: _loans),
+        SizedBox(height: R.p(16)),
+        _AiInsightsCard(loans: _loans, totalDebt: _totalDebt),
+        SizedBox(height: R.p(8)),
+      ],
     );
   }
 }
@@ -129,39 +466,44 @@ class _Chip extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// 2×2 STAT GRID  (Total Debt / DTI / Credit Score / DTA)
+// 2×2 STAT GRID
 // ═══════════════════════════════════════════════════════════════
 class _StatGrid extends StatelessWidget {
+  final double totalDebt;
+  final double totalPaidOff;
+
+  const _StatGrid({required this.totalDebt, required this.totalPaidOff});
+
   @override
   Widget build(BuildContext context) {
     final stats = [
       _StatData(
         'Total Debt',
-        '₹4,20,000',
+        _fmtAmount(totalDebt),
         Icons.account_balance_wallet_rounded,
         T.red,
-        '-₹8,200 this month',
+        totalPaidOff > 0 ? '-${_fmtAmount(totalPaidOff)} paid' : 'Outstanding',
       ),
       _StatData(
-        'Debt to Income',
-        '34%',
+        'Monthly Impact',
+        '₹${(totalDebt * 0.015).toStringAsFixed(0)}',
         Icons.trending_down_rounded,
         T.gold,
-        'Moderate risk',
+        'Est. monthly EMI',
       ),
       _StatData(
-        'Credit Score',
-        '742',
+        'Credit Health',
+        'Good',
         Icons.verified_rounded,
         T.green,
-        'Good standing',
+        'On-time payments',
       ),
       _StatData(
-        'Debt to Asset',
-        '28%',
+        'Total Paid',
+        _fmtAmount(totalPaidOff),
         Icons.pie_chart_rounded,
         T.accent,
-        'Healthy ratio',
+        'Progress made',
       ),
     ];
 
@@ -174,6 +516,13 @@ class _StatGrid extends StatelessWidget {
       childAspectRatio: 1.55,
       children: stats.map((s) => _StatCard(s)).toList(),
     );
+  }
+
+  String _fmtAmount(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
   }
 }
 
@@ -274,15 +623,62 @@ class _StatCard extends StatelessWidget {
 // DEBT COMPOSITION DONUT
 // ═══════════════════════════════════════════════════════════════
 class _DebtCompositionCard extends StatelessWidget {
+  final double totalDebt;
+  final Map<LoanType, double> composition;
+
+  const _DebtCompositionCard({
+    required this.totalDebt,
+    required this.composition,
+  });
+
+  static Color _colorForType(LoanType t) {
+    switch (t) {
+      case LoanType.HOME:
+        return T.accent;
+      case LoanType.AUTO:
+        return T.accentSoft;
+      case LoanType.PERSONAL:
+        return T.gold;
+      case LoanType.CREDIT_CARD:
+        return T.red;
+      case LoanType.EDUCATION:
+        return const Color(0xFF4DABF7);
+      case LoanType.OTHER:
+        return T.textSecondary;
+    }
+  }
+
+  static String _labelForType(LoanType t) {
+    switch (t) {
+      case LoanType.HOME:
+        return 'Home Loan';
+      case LoanType.AUTO:
+        return 'Auto Loan';
+      case LoanType.PERSONAL:
+        return 'Personal';
+      case LoanType.CREDIT_CARD:
+        return 'Credit Card';
+      case LoanType.EDUCATION:
+        return 'Education';
+      case LoanType.OTHER:
+        return 'Other';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final segs = [
-      _Seg('Home Loan', 0.52, T.accent),
-      _Seg('Car Loan', 0.18, T.accentSoft),
-      _Seg('Personal', 0.15, T.gold),
-      _Seg('Credit Card', 0.10, T.red),
-      _Seg('Other', 0.05, T.textSecondary),
-    ];
+    final segs =
+        composition.entries
+            .map(
+              (e) => _Seg(
+                _labelForType(e.key),
+                e.value / totalDebt,
+                _colorForType(e.key),
+              ),
+            )
+            .toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
     final pieSize = R.w(36).clamp(120.0, 160.0);
 
     return _SCard(
@@ -304,7 +700,7 @@ class _DebtCompositionCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '₹4.2L',
+                          _fmtAmount(totalDebt),
                           style: TextStyle(
                             color: T.textPrimary,
                             fontSize: R.fs(13),
@@ -373,302 +769,256 @@ class _DebtCompositionCard extends StatelessWidget {
       ),
     );
   }
+
+  String _fmtAmount(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(1)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(1)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DEBT REDUCTION HISTORY BAR CHART
+// LOANS LIST
 // ═══════════════════════════════════════════════════════════════
-class _DebtReductionChart extends StatelessWidget {
-  static const _years = ['2022', '2023', '2024', '2025', '2026'];
-  static const _fracs = [1.0, 0.82, 0.65, 0.44, 0.28];
+class _LoansList extends StatelessWidget {
+  final List<Loan> loans;
+  const _LoansList({required this.loans});
 
   @override
   Widget build(BuildContext context) {
-    final chartH = R.h(20).clamp(120.0, 170.0);
     return _SCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CardHeader('Debt Reduction History', '5Y'),
-          SizedBox(height: R.p(18)),
-          // Y-axis label
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Y-axis
-              Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: ['4.2L', '3L', '2L', '1L', '0']
-                    .map(
-                      (l) => SizedBox(
-                        height: chartH / 5,
-                        child: Text(
-                          l,
-                          style: TextStyle(
-                            color: T.textMuted,
-                            fontSize: R.fs(8),
-                          ),
-                        ),
-                      ),
-                    )
-                    .toList(),
+          _CardHeader('Your Loans', '${loans.length}'),
+          SizedBox(height: R.p(16)),
+          ...loans.asMap().entries.map((e) {
+            final i = e.key;
+            final loan = e.value;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: i < loans.length - 1 ? R.p(14) : 0,
               ),
-              SizedBox(width: R.p(8)),
-              // Bars
+              child: _LoanRow(loan: loan),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoanRow extends StatelessWidget {
+  final Loan loan;
+  const _LoanRow({required this.loan});
+
+  static Color _colorForType(LoanType t) {
+    switch (t) {
+      case LoanType.HOME:
+        return T.accent;
+      case LoanType.AUTO:
+        return T.accentSoft;
+      case LoanType.PERSONAL:
+        return T.gold;
+      case LoanType.CREDIT_CARD:
+        return T.red;
+      case LoanType.EDUCATION:
+        return const Color(0xFF4DABF7);
+      case LoanType.OTHER:
+        return T.textSecondary;
+    }
+  }
+
+  static IconData _iconForType(LoanType t) {
+    switch (t) {
+      case LoanType.HOME:
+        return Icons.home_rounded;
+      case LoanType.AUTO:
+        return Icons.directions_car_rounded;
+      case LoanType.PERSONAL:
+        return Icons.person_rounded;
+      case LoanType.CREDIT_CARD:
+        return Icons.credit_card_rounded;
+      case LoanType.EDUCATION:
+        return Icons.school_rounded;
+      case LoanType.OTHER:
+        return Icons.category_rounded;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _colorForType(loan.type);
+    final payoffYear = loan.payoffYear;
+
+    return Container(
+      padding: EdgeInsets.all(R.p(14)),
+      decoration: BoxDecoration(
+        color: T.elevated,
+        borderRadius: BorderRadius.circular(R.r(16)),
+        border: Border.all(color: color.withOpacity(0.2), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: R.p(40).clamp(36.0, 48.0),
+                height: R.p(40).clamp(36.0, 48.0),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(R.r(12)),
+                ),
+                child: Icon(
+                  _iconForType(loan.type),
+                  color: color,
+                  size: R.fs(18),
+                ),
+              ),
+              SizedBox(width: R.p(12)),
               Expanded(
-                child: SizedBox(
-                  height: 200,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: List.generate(_years.length, (i) {
-                      final frac = _fracs[i];
-                      final isLatest = i == _years.length - 1;
-                      return Expanded(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(horizontal: R.p(4)),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              // Amount label on top of bar
-                              Text(
-                                _amountLabel(frac),
-                                style: TextStyle(
-                                  color: isLatest ? T.accent : T.textMuted,
-                                  fontSize: R.fs(8),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              SizedBox(height: R.p(3)),
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 500),
-                                height: (frac * chartH * 0.88).clamp(
-                                  4.0,
-                                  chartH,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(6),
-                                  ),
-                                  gradient: LinearGradient(
-                                    colors: isLatest
-                                        ? [T.accent, T.accentSoft]
-                                        : [
-                                            T.red.withOpacity(0.85),
-                                            T.red.withOpacity(0.5),
-                                          ],
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: (isLatest ? T.accent : T.red)
-                                          .withOpacity(0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              SizedBox(height: R.p(6)),
-                              Text(
-                                _years[i],
-                                style: TextStyle(
-                                  color: T.textMuted,
-                                  fontSize: R.fs(9),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      loan.name,
+                      style: TextStyle(
+                        color: T.textPrimary,
+                        fontSize: R.fs(14),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    SizedBox(height: R.p(2)),
+                    Text(
+                      loan.lender,
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: R.p(8),
+                  vertical: R.p(3),
+                ),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.14),
+                  borderRadius: BorderRadius.circular(R.r(6)),
+                ),
+                child: Text(
+                  payoffYear,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: R.fs(11),
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
             ],
           ),
           SizedBox(height: R.p(12)),
-          // Legend
           Row(
             children: [
-              _LDot(T.red, 'Outstanding Debt'),
-              SizedBox(width: R.p(20)),
-              _LDot(T.accent, 'Current Year'),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Outstanding',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(9)),
+                    ),
+                    SizedBox(height: R.p(2)),
+                    Text(
+                      _fmtAmount(loan.outstandingBalance),
+                      style: TextStyle(
+                        color: T.textPrimary,
+                        fontSize: R.fs(13),
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'EMI Amount',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(9)),
+                    ),
+                    SizedBox(height: R.p(2)),
+                    Text(
+                      _fmtAmount(loan.emiAmount),
+                      style: TextStyle(
+                        color: T.textSecondary,
+                        fontSize: R.fs(13),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  String _amountLabel(double frac) {
-    final val = (frac * 4.2).toStringAsFixed(1);
-    return '₹${val}L';
-  }
-}
-
-class _LDot extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _LDot(this.color, this.label);
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Container(
-        width: R.p(10),
-        height: R.p(10),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(3),
-        ),
-      ),
-      SizedBox(width: R.p(6)),
-      Text(
-        label,
-        style: TextStyle(
-          color: T.textSecondary,
-          fontSize: R.fs(11),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    ],
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════
-// PROJECTED PAYOFF TIMELINE
-// ═══════════════════════════════════════════════════════════════
-class _ProjectedPayoffCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final loans = [
-      _LoanPayoff('Home Loan', '2031', 0.72, T.accent),
-      _LoanPayoff('Car Loan', '2027', 0.38, T.accentSoft),
-      _LoanPayoff('Personal Loan', '2026', 0.15, T.gold),
-      _LoanPayoff('Credit Card', 'Overdue', 0.05, T.red),
-    ];
-
-    return _SCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CardHeader('Projected Payoff Timeline', null),
-          SizedBox(height: R.p(16)),
-          ...loans.map(
-            (l) => Padding(
-              padding: EdgeInsets.only(bottom: R.p(14)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          l.name,
-                          style: TextStyle(
-                            color: T.textPrimary,
-                            fontSize: R.fs(13),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+          SizedBox(height: R.p(10)),
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(R.r(6)),
+            child: Stack(
+              children: [
+                Container(height: 6, color: T.border.withOpacity(0.6)),
+                FractionallySizedBox(
+                  widthFactor: loan.paidOffProgress,
+                  child: Container(
+                    height: 6,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [color, color.withOpacity(0.6)],
                       ),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: R.p(8),
-                          vertical: R.p(3),
-                        ),
-                        decoration: BoxDecoration(
-                          color: l.color.withOpacity(0.14),
-                          borderRadius: BorderRadius.circular(R.r(6)),
-                        ),
-                        child: Text(
-                          l.year,
-                          style: TextStyle(
-                            color: l.color,
-                            fontSize: R.fs(11),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: R.p(8)),
-                  // Progress bar
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(R.r(6)),
-                    child: Stack(
-                      children: [
-                        Container(height: 6, color: T.border.withOpacity(0.6)),
-                        FractionallySizedBox(
-                          widthFactor: l.progress,
-                          child: Container(
-                            height: 6,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [l.color, l.color.withOpacity(0.6)],
-                              ),
-                              borderRadius: BorderRadius.circular(R.r(6)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: l.color.withOpacity(0.4),
-                                  blurRadius: 6,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                      borderRadius: BorderRadius.circular(R.r(6)),
+                      boxShadow: [
+                        BoxShadow(color: color.withOpacity(0.4), blurRadius: 6),
                       ],
                     ),
                   ),
-                  SizedBox(height: R.p(4)),
-                  Text(
-                    '${(l.progress * 100).toInt()}% paid off',
-                    style: TextStyle(color: T.textMuted, fontSize: R.fs(10)),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
+          SizedBox(height: R.p(4)),
+          Text(
+            '${(loan.paidOffProgress * 100).toInt()}% paid off • ${loan.tenureInMonths} months',
+            style: TextStyle(color: T.textMuted, fontSize: R.fs(10)),
           ),
         ],
       ),
     );
   }
-}
 
-class _LoanPayoff {
-  final String name, year;
-  final double progress;
-  final Color color;
-  const _LoanPayoff(this.name, this.year, this.progress, this.color);
+  String _fmtAmount(double v) {
+    if (v >= 10000000) return '₹${(v / 10000000).toStringAsFixed(2)}Cr';
+    if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(2)}L';
+    if (v >= 1000) return '₹${(v / 1000).toStringAsFixed(1)}K';
+    return '₹${v.toStringAsFixed(0)}';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // AI INSIGHTS CARD
 // ═══════════════════════════════════════════════════════════════
 class _AiInsightsCard extends StatelessWidget {
+  final List<Loan> loans;
+  final double totalDebt;
+
+  const _AiInsightsCard({required this.loans, required this.totalDebt});
+
   @override
   Widget build(BuildContext context) {
-    final insights = [
-      _Insight(
-        Icons.lightbulb_rounded,
-        'Avalanche Strategy',
-        'Pay ₹2,000 extra on your Credit Card to save ₹18,400 in interest.',
-        T.gold,
-      ),
-      _Insight(
-        Icons.trending_up_rounded,
-        'Score Boost',
-        'Reducing CC utilisation below 30% could raise your score by ~40 pts.',
-        T.green,
-      ),
-      _Insight(
-        Icons.calendar_month_rounded,
-        'Early Payoff',
-        'Increasing EMI by ₹3,000/mo will clear your Car Loan 14 months early.',
-        T.accent,
-      ),
-    ];
+    final insights = _generateInsights();
 
     return _SCard(
       child: Column(
@@ -762,6 +1112,67 @@ class _AiInsightsCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  List<_Insight> _generateInsights() {
+    final insights = <_Insight>[];
+
+    // Find highest interest loan
+    if (loans.isNotEmpty) {
+      final highestInterest = loans.reduce(
+        (a, b) => a.interestRate > b.interestRate ? a : b,
+      );
+
+      if (highestInterest.interestRate > 10) {
+        insights.add(
+          _Insight(
+            Icons.lightbulb_rounded,
+            'Avalanche Strategy',
+            'Focus on ${highestInterest.name} (${highestInterest.interestRate.toStringAsFixed(1)}% interest) to save maximum on interest payments.',
+            T.gold,
+          ),
+        );
+      }
+    }
+
+    // Credit card specific insight
+    final ccLoans = loans.where((l) => l.type == LoanType.CREDIT_CARD).toList();
+    if (ccLoans.isNotEmpty) {
+      insights.add(
+        _Insight(
+          Icons.trending_up_rounded,
+          'Credit Score Boost',
+          'Reducing credit card utilization below 30% could improve your credit score significantly.',
+          T.green,
+        ),
+      );
+    }
+
+    // General repayment insight
+    if (loans.length > 1) {
+      insights.add(
+        _Insight(
+          Icons.calendar_month_rounded,
+          'Consolidation Option',
+          'Consider debt consolidation to potentially lower your average interest rate and simplify payments.',
+          T.accent,
+        ),
+      );
+    }
+
+    // Default insight if none generated
+    if (insights.isEmpty) {
+      insights.add(
+        _Insight(
+          Icons.tips_and_updates_rounded,
+          'Stay on Track',
+          'You\'re managing your debt well. Keep making timely payments to maintain good credit health.',
+          T.accent,
+        ),
+      );
+    }
+
+    return insights.take(3).toList();
   }
 }
 
