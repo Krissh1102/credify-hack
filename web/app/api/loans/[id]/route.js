@@ -25,7 +25,7 @@ export async function GET(req, context) {
     if (!clerkUserId) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
-    const { id: loanId } = context.params;
+    const { id: loanId } = await context.params;
     const user = await db.user.findUnique({ where: { clerkUserId } });
     if (!user) {
       return new NextResponse("User not found", { status: 404 });
@@ -51,7 +51,7 @@ export async function PATCH(req, context) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
 
-    const { id: loanId } = context.params;
+    const { id: loanId } = await context.params;
     const user = await db.user.findUnique({ where: { clerkUserId } });
     if (!user) {
       return new NextResponse("User not found", { status: 404 });

@@ -498,7 +498,6 @@ class _FeaturePills extends StatelessWidget {
   }
 }
 
-// ─── CTA Buttons ─────────────────────────────────────────────────
 class _CTAButtons extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

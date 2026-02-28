@@ -1,114 +1,126 @@
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile/services/transaction_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class TransactionProvider with ChangeNotifier {
+class TransactionProvider extends ChangeNotifier {
   final TransactionService _service = TransactionService.instance;
-  
-  List<Map<String, dynamic>> _transactions = [];
-  Map<String, List<Map<String, dynamic>>> _groupedTransactions = {
-    'INCOME': [],
-    'EXPENSE': [],
-    'TRANSFER': [],
-    'INVESTMENT': [],
-  };
-  
+  static SupabaseClient get _db => Supabase.instance.client;
+
   bool _isLoading = false;
   String? _error;
-  Map<String, double> _stats = {
-    'income': 0,
-    'expense': 0,
-    'investment': 0,
-    'balance': 0,
-  };
 
-  // Getters
-  List<Map<String, dynamic>> get transactions => _transactions;
-  List<Map<String, dynamic>> get incomeTransactions => _groupedTransactions['INCOME'] ?? [];
-  List<Map<String, dynamic>> get expenseTransactions => _groupedTransactions['EXPENSE'] ?? [];
-  List<Map<String, dynamic>> get transferTransactions => _groupedTransactions['TRANSFER'] ?? [];
-  List<Map<String, dynamic>> get investmentTransactions => _groupedTransactions['INVESTMENT'] ?? [];
-  Map<String, List<Map<String, dynamic>>> get groupedTransactions => _groupedTransactions;
+  List<Map<String, dynamic>> _transactions = [];
+  List<Map<String, dynamic>> _incomeTransactions = [];
+  List<Map<String, dynamic>> _expenseTransactions = [];
+
   bool get isLoading => _isLoading;
   String? get error => _error;
-  Map<String, double> get stats => _stats;
+  List<Map<String, dynamic>> get transactions => _transactions;
+  List<Map<String, dynamic>> get incomeTransactions => _incomeTransactions;
+  List<Map<String, dynamic>> get expenseTransactions => _expenseTransactions;
 
-  // Get current user ID
-  String? get _currentUserId {
-    final user = Supabase.instance.client.auth.currentUser;
-    return user?.id;
+  // ── Resolve Clerk ID → internal UUID ──────────────────────────
+  Future<String?> _resolveInternalId(String clerkUserId) async {
+    if (clerkUserId.isEmpty) return null;
+    final rows = await _db
+        .from('users')
+        .select('id')
+        .eq('clerkUserId', clerkUserId)
+        .limit(1);
+    if ((rows as List).isEmpty) return null;
+    return (rows.first as Map<String, dynamic>)['id'] as String?;
   }
 
-  // Load transactions for current user
-  Future<void> loadTransactions({String? type}) async {
-    if (_currentUserId == null) {
-      _error = 'User not authenticated';
-      notifyListeners();
-      return;
-    }
-
+  // ── Load all transactions ──────────────────────────────────────
+  Future<void> loadTransactions({String? clerkUserId}) async {
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      _transactions = await _service.getTransactionsByUser(
-        _currentUserId!,
-        type: type,
-      );
-      
-      // Group transactions by type
-      _groupedTransactions = await _service.getTransactionsGroupedByType(_currentUserId!);
-      
-      // Calculate stats
-      _stats = await _service.getTransactionStats(_currentUserId!);
-      
-      _isLoading = false;
-      notifyListeners();
+      String? userId = clerkUserId;
+
+      // If no userId passed, fall back to fetching all (dev mode)
+      // In production always pass clerkUserId from the widget tree
+      String? internalId;
+      if (userId != null && userId.isNotEmpty) {
+        internalId = await _resolveInternalId(userId);
+      }
+
+      final all = internalId != null
+          ? await _service.getTransactionsByUser(internalId)
+          : <Map<String, dynamic>>[];
+
+      _transactions = all;
+      // ✅ Split by the `type` column — INCOME vs EXPENSE
+      _incomeTransactions = all
+          .where((t) => (t['type'] as String?) == 'INCOME')
+          .toList();
+      _expenseTransactions = all
+          .where((t) => (t['type'] as String?) == 'EXPENSE')
+          .toList();
     } catch (e) {
       _error = e.toString();
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  // Create a new transaction
+  // ── Create transaction ────────────────────────────────────────
+  // Matches the Prisma model exactly:
+  //   id, type, amount, description, date, category,
+  //   receiptUrl, isRecurring, recurringInterval,
+  //   nextRecurringDate, status
   Future<bool> createTransaction({
+    required String clerkUserId,
     required String accountId,
-    required String type,
+    required String type, // 'INCOME' | 'EXPENSE' | 'TRANSFER' | 'INVESTMENT'
     required double amount,
     required String category,
-    required String date,
-    required String description,
-    required bool isRecurring,
-    String? receiptUrl,
-    String? recurringInterval,
+    required String date, // dd/MM/yyyy from picker
+    String description = '',
+    bool isRecurring = false,
+    String? recurringInterval, // 'MONTHLY' etc.
     DateTime? nextRecurringDate,
+    String? receiptUrl,
   }) async {
-    if (_currentUserId == null) {
-      _error = 'User not authenticated';
-      notifyListeners();
-      return false;
-    }
-
     try {
+      final internalId = await _resolveInternalId(clerkUserId);
+      if (internalId == null) return false;
+
+      // Convert dd/MM/yyyy → ISO8601 for Supabase
+      final parts = date.split('/');
+      final isoDate = parts.length == 3
+          ? '${parts[2]}-${parts[1].padLeft(2, '0')}-${parts[0].padLeft(2, '0')}T00:00:00.000Z'
+          : DateTime.now().toIso8601String();
+
       final result = await _service.createTransaction(
-        userId: _currentUserId!,
+        userId: internalId,
         accountId: accountId,
         type: type,
         amount: amount,
         category: category,
-        date: date,
+        date: isoDate,
         description: description,
         isRecurring: isRecurring,
-        receiptUrl: receiptUrl,
-        recurringInterval: recurringInterval,
+        recurringInterval: isRecurring
+            ? (recurringInterval ?? 'MONTHLY')
+            : null,
         nextRecurringDate: nextRecurringDate,
+        receiptUrl: receiptUrl,
       );
 
       if (result != null) {
-        // Reload transactions after creation
-        await loadTransactions();
+        // Optimistically prepend to the right list
+        _transactions.insert(0, result);
+        if (type == 'INCOME') {
+          _incomeTransactions.insert(0, result);
+        } else if (type == 'EXPENSE') {
+          _expenseTransactions.insert(0, result);
+        }
+        notifyListeners();
         return true;
       }
       return false;
@@ -119,63 +131,6 @@ class TransactionProvider with ChangeNotifier {
     }
   }
 
-  // Update a transaction
-  Future<bool> updateTransaction(
-    String transactionId,
-    Map<String, dynamic> updates,
-  ) async {
-    try {
-      final success = await _service.updateTransaction(transactionId, updates);
-      if (success) {
-        await loadTransactions();
-      }
-      return success;
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Delete a transaction
-  Future<bool> deleteTransaction(String transactionId) async {
-    try {
-      final success = await _service.deleteTransaction(transactionId);
-      if (success) {
-        await loadTransactions();
-      }
-      return success;
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-      return false;
-    }
-  }
-
-  // Filter transactions by type
-  List<Map<String, dynamic>> getTransactionsByType(String type) {
-    return _groupedTransactions[type.toUpperCase()] ?? [];
-  }
-
-  // Get transactions for a specific date range
-  List<Map<String, dynamic>> getTransactionsByDateRange(
-    DateTime start,
-    DateTime end,
-  ) {
-    return _transactions.where((txn) {
-      final date = DateTime.parse(txn['createdAt'] as String);
-      return date.isAfter(start) && date.isBefore(end);
-    }).toList();
-  }
-
-  // Clear error
-  void clearError() {
-    _error = null;
-    notifyListeners();
-  }
-
-  // Refresh transactions
-  Future<void> refresh() async {
-    await loadTransactions();
-  }
+  Future<void> refresh({String? clerkUserId}) =>
+      loadTransactions(clerkUserId: clerkUserId);
 }
