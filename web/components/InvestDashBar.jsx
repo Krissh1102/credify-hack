@@ -135,8 +135,8 @@ export const InvestDashBar = ({ open, setOpen }) => {
       icon: <CalculatorIcon size={20} />,
     },
     {
-      label: "Retirement Planning",
-      href: "/retirement-planning",
+      label: "Tax Planning",
+      href: "/tax-planning",
       icon: <DollarSign size={20} />,
     },
   ];
