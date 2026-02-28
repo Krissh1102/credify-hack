@@ -1,13 +1,12 @@
 import 'dart:io';
 
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile/provider/transaction_provider.dart';
-
 import 'package:mobile/services/camera_service.dart';
 import 'package:mobile/theme/theme.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -25,8 +24,7 @@ class _ScanScreenState extends State<ScanScreen>
   // Form state
   String _selectedType = '';
   String _selectedAccount = "Ved's Main Account";
-  String _selectedAccountId =
-      "b2a55e13-3ca1-4dd4-acfc-29347b..."; // Default account ID
+  String _selectedAccountId = "b2a55e13-3ca1-4dd4-acfc-29347b...";
   String _selectedCategory = '';
   bool _recurring = false;
   bool _typeDropOpen = false;
@@ -34,8 +32,10 @@ class _ScanScreenState extends State<ScanScreen>
   bool _categoryDropOpen = false;
   File? _scannedReceipt;
 
-  // Filter state
-  String _filterType = 'ALL'; // ALL, INCOME, EXPENSE
+  // Transaction list state
+  String _filterType = 'ALL'; // ALL | INCOME | EXPENSE
+  bool _showAll = false;
+  static const int _previewCount = 5;
 
   final _amountCtrl = TextEditingController();
   final _dateCtrl = TextEditingController();
@@ -74,14 +74,13 @@ class _ScanScreenState extends State<ScanScreen>
     ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
     _ac.forward();
 
-    // Default date to today
     final now = DateTime.now();
     _dateCtrl.text =
         '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
 
-    // Load transactions on init
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<TransactionProvider>().loadTransactions();
+      final userId = ClerkAuth.of(context).user?.id ?? '';
+      context.read<TransactionProvider>().loadTransactions(clerkUserId: userId);
     });
   }
 
@@ -94,43 +93,36 @@ class _ScanScreenState extends State<ScanScreen>
     super.dispose();
   }
 
-  void _closeAllDropdowns() {
-    setState(() {
-      _typeDropOpen = false;
-      _accountDropOpen = false;
-      _categoryDropOpen = false;
-    });
-  }
+  void _closeAllDropdowns() => setState(() {
+        _typeDropOpen = false;
+        _accountDropOpen = false;
+        _categoryDropOpen = false;
+      });
+
+  void _switchFilter(String type) => setState(() {
+        _filterType = type;
+        _showAll = false;
+      });
 
   Future<void> _scanReceipt() async {
     HapticFeedback.lightImpact();
-
     final result = await CameraService.instance.showPickerSheet(context);
-
-    if (!result.success) return;
-
-    HapticFeedback.lightImpact();
-
     if (!result.success || !mounted) return;
+    HapticFeedback.lightImpact();
     setState(() => _scannedReceipt = result.image);
-
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Receipt captured! AI analysis coming soon…'),
-          backgroundColor: T.accent,
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.all(R.p(16)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(R.r(12)),
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Receipt captured! AI analysis coming soon…'),
+        backgroundColor: T.accent,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.all(R.p(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12))),
+      ));
     }
   }
 
   Future<void> _handleCreate() async {
-    // Validation
     if (_selectedType.isEmpty) {
       _showError('Please select a transaction type');
       return;
@@ -143,18 +135,19 @@ class _ScanScreenState extends State<ScanScreen>
       _showError('Please select a category');
       return;
     }
-
     final amount = double.tryParse(_amountCtrl.text);
-    if (amount == null) {
+    if (amount == null || amount <= 0) {
       _showError('Please enter a valid amount');
       return;
     }
 
     HapticFeedback.mediumImpact();
 
-    // Create transaction in database
+    final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
     final provider = context.read<TransactionProvider>();
+
     final success = await provider.createTransaction(
+      clerkUserId: clerkUserId,
       accountId: _selectedAccountId,
       type: _selectedType.toUpperCase(),
       amount: amount,
@@ -163,67 +156,54 @@ class _ScanScreenState extends State<ScanScreen>
       description: _descCtrl.text,
       isRecurring: _recurring,
       recurringInterval: _recurring ? 'MONTHLY' : null,
-      nextRecurringDate: _recurring
-          ? DateTime.now().add(const Duration(days: 30))
-          : null,
+      nextRecurringDate:
+          _recurring ? DateTime.now().add(const Duration(days: 30)) : null,
     );
 
     if (success && mounted) {
-      // Clear form
       _amountCtrl.clear();
       _descCtrl.clear();
+      final now = DateTime.now();
       setState(() {
         _selectedType = '';
         _selectedCategory = '';
         _recurring = false;
         _scannedReceipt = null;
-
-        // Reset date to today
-        final now = DateTime.now();
         _dateCtrl.text =
             '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Transaction created successfully!'),
-          backgroundColor: Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.all(R.p(16)),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(R.r(12)),
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Transaction created successfully!'),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.all(R.p(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12))),
+      ));
     } else if (mounted) {
-      _showError('Failed to create transaction');
+      _showError('Failed to create transaction. Please try again.');
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: T.red,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.all(R.p(16)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(R.r(12)),
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: T.red,
+      behavior: SnackBarBehavior.floating,
+      margin: EdgeInsets.all(R.p(16)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.r(12))),
+    ));
   }
 
-  List<Map<String, dynamic>> _getFilteredTransactions(
-    TransactionProvider provider,
-  ) {
+  List<Map<String, dynamic>> _getFiltered(TransactionProvider p) {
     switch (_filterType) {
       case 'INCOME':
-        return provider.incomeTransactions;
+        return p.incomeTransactions;
       case 'EXPENSE':
-        return provider.expenseTransactions;
+        return p.expenseTransactions;
       default:
-        return provider.transactions;
+        return p.transactions;
     }
   }
 
@@ -234,10 +214,13 @@ class _ScanScreenState extends State<ScanScreen>
     T.init(notifier.isDark);
 
     return Consumer<TransactionProvider>(
-      builder: (context, transactionProvider, _) {
-        final filteredTransactions = _getFilteredTransactions(
-          transactionProvider,
-        );
+      builder: (context, provider, _) {
+        final allFiltered = _getFiltered(provider);
+        final visible = _showAll
+            ? allFiltered
+            : allFiltered.take(_previewCount).toList();
+        final hasMore =
+            !_showAll && allFiltered.length > _previewCount;
 
         return FadeTransition(
           opacity: _fade,
@@ -249,23 +232,21 @@ class _ScanScreenState extends State<ScanScreen>
                 _closeAllDropdowns();
               },
               child: RefreshIndicator(
-                onRefresh: () => transactionProvider.refresh(),
+                onRefresh: () {
+                  final uid = ClerkAuth.of(context).user?.id ?? '';
+                  return provider.refresh(clerkUserId: uid);
+                },
                 color: T.accent,
                 child: CustomScrollView(
                   physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
+                      parent: AlwaysScrollableScrollPhysics()),
                   slivers: [
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(
-                        R.p(20),
-                        R.p(10),
-                        R.p(20),
-                        R.p(32),
-                      ),
+                          R.p(20), R.p(10), R.p(20), R.p(32)),
                       sliver: SliverList(
                         delegate: SliverChildListDelegate([
-                          // ── Select Account Card ─────────────────────
+                          // ── Account Selector ──────────────────────
                           _SCard(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,7 +299,7 @@ class _ScanScreenState extends State<ScanScreen>
 
                           SizedBox(height: R.p(16)),
 
-                          // ── Add Transaction Card ────────────────────
+                          // ── Add Transaction Card ──────────────────
                           _SCard(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,7 +316,6 @@ class _ScanScreenState extends State<ScanScreen>
                                   ),
                                 ),
                                 SizedBox(height: R.p(16)),
-
                                 _ActionButton(
                                   icon: Icons.document_scanner_rounded,
                                   label: 'Scan Receipt with AI',
@@ -352,36 +332,31 @@ class _ScanScreenState extends State<ScanScreen>
                                 if (_scannedReceipt != null) ...[
                                   SizedBox(height: R.p(12)),
                                   ClipRRect(
-                                    borderRadius: BorderRadius.circular(
-                                      R.r(14),
-                                    ),
+                                    borderRadius:
+                                        BorderRadius.circular(R.r(14)),
                                     child: Stack(
                                       children: [
-                                        Image.file(
-                                          _scannedReceipt!,
-                                          width: double.infinity,
-                                          height: R.p(160),
-                                          fit: BoxFit.cover,
-                                        ),
+                                        Image.file(_scannedReceipt!,
+                                            width: double.infinity,
+                                            height: R.p(160),
+                                            fit: BoxFit.cover),
                                         Positioned(
                                           top: 8,
                                           right: 8,
                                           child: GestureDetector(
                                             onTap: () => setState(
-                                              () => _scannedReceipt = null,
-                                            ),
+                                                () => _scannedReceipt = null),
                                             child: Container(
-                                              padding: const EdgeInsets.all(4),
+                                              padding:
+                                                  const EdgeInsets.all(4),
                                               decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius:
-                                                    BorderRadius.circular(20),
-                                              ),
-                                              child: const Icon(
-                                                Icons.close,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
+                                                  color: Colors.black54,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          20)),
+                                              child: const Icon(Icons.close,
+                                                  color: Colors.white,
+                                                  size: 16),
                                             ),
                                           ),
                                         ),
@@ -389,11 +364,11 @@ class _ScanScreenState extends State<ScanScreen>
                                     ),
                                   ),
                                 ],
-
                                 SizedBox(height: R.p(22)),
                                 _Divider(),
                                 SizedBox(height: R.p(20)),
 
+                                // Type
                                 _FieldLabel('Type'),
                                 SizedBox(height: R.p(8)),
                                 _DropField(
@@ -418,6 +393,7 @@ class _ScanScreenState extends State<ScanScreen>
 
                                 SizedBox(height: R.p(16)),
 
+                                // Amount + Account
                                 Row(
                                   children: [
                                     Expanded(
@@ -427,21 +403,17 @@ class _ScanScreenState extends State<ScanScreen>
                                         children: [
                                           _FieldLabel('Amount'),
                                           SizedBox(height: R.p(8)),
-                                          _TextField(
+                                          _TField(
                                             controller: _amountCtrl,
                                             hint: '₹ 0.00',
-                                            keyboardType:
-                                                const TextInputType.numberWithOptions(
-                                                  decimal: true,
-                                                ),
-                                            prefix: Text(
-                                              '₹',
-                                              style: TextStyle(
-                                                color: T.accent,
-                                                fontWeight: FontWeight.w700,
-                                                fontSize: R.fs(14),
-                                              ),
-                                            ),
+                                            keyboardType: const TextInputType
+                                                .numberWithOptions(
+                                                decimal: true),
+                                            prefix: Text('₹',
+                                                style: TextStyle(
+                                                    color: T.accent,
+                                                    fontWeight: FontWeight.w700,
+                                                    fontSize: R.fs(14))),
                                           ),
                                         ],
                                       ),
@@ -455,10 +427,9 @@ class _ScanScreenState extends State<ScanScreen>
                                           _FieldLabel('Account'),
                                           SizedBox(height: R.p(8)),
                                           _ReadOnlyField(
-                                            value: _selectedAccount
-                                                .split(' ')
-                                                .first,
-                                          ),
+                                              value: _selectedAccount
+                                                  .split(' ')
+                                                  .first),
                                         ],
                                       ),
                                     ),
@@ -467,6 +438,7 @@ class _ScanScreenState extends State<ScanScreen>
 
                                 SizedBox(height: R.p(16)),
 
+                                // Category
                                 Row(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
@@ -499,17 +471,16 @@ class _ScanScreenState extends State<ScanScreen>
 
                                 SizedBox(height: R.p(16)),
 
+                                // Date
                                 _FieldLabel('Date'),
                                 SizedBox(height: R.p(8)),
-                                _TextField(
+                                _TField(
                                   controller: _dateCtrl,
                                   hint: 'DD/MM/YYYY',
                                   keyboardType: TextInputType.datetime,
-                                  suffix: Icon(
-                                    Icons.calendar_today_rounded,
-                                    color: T.textSecondary,
-                                    size: R.fs(16),
-                                  ),
+                                  suffix: Icon(Icons.calendar_today_rounded,
+                                      color: T.textSecondary,
+                                      size: R.fs(16)),
                                   onTap: () async {
                                     FocusScope.of(context).unfocus();
                                     _closeAllDropdowns();
@@ -521,9 +492,8 @@ class _ScanScreenState extends State<ScanScreen>
                                       builder: (ctx, child) => Theme(
                                         data: Theme.of(ctx).copyWith(
                                           colorScheme: ColorScheme.dark(
-                                            primary: T.accent,
-                                            surface: T.surface,
-                                          ),
+                                              primary: T.accent,
+                                              surface: T.surface),
                                         ),
                                         child: child!,
                                       ),
@@ -537,9 +507,10 @@ class _ScanScreenState extends State<ScanScreen>
 
                                 SizedBox(height: R.p(16)),
 
+                                // Description
                                 _FieldLabel('Description'),
                                 SizedBox(height: R.p(8)),
-                                _TextField(
+                                _TField(
                                   controller: _descCtrl,
                                   hint: 'Add a note...',
                                   keyboardType: TextInputType.multiline,
@@ -580,6 +551,7 @@ class _ScanScreenState extends State<ScanScreen>
                                       child: _GradientBtn(
                                         label: 'Create Transaction',
                                         onTap: _handleCreate,
+                                        isLoading: provider.isLoading,
                                       ),
                                     ),
                                   ],
@@ -588,73 +560,218 @@ class _ScanScreenState extends State<ScanScreen>
                             ),
                           ),
 
-                          // ── Transaction History ────────────────────
-                          if (filteredTransactions.isNotEmpty) ...[
-                            SizedBox(height: R.p(24)),
+                          SizedBox(height: R.p(24)),
 
-                            // Filter buttons
-                            Row(
-                              children: [
-                                Text(
-                                  'Recent Transactions',
-                                  style: TextStyle(
-                                    color: T.textPrimary,
-                                    fontSize: R.fs(18),
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -0.4,
+                          // ── Transaction History ──────────────────
+                          // Header row
+                          Row(
+                            children: [
+                              Text(
+                                'Recent Transactions',
+                                style: TextStyle(
+                                  color: T.textPrimary,
+                                  fontSize: R.fs(16),
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.4,
+                                ),
+                              ),
+                              const Spacer(),
+                              GestureDetector(
+                                onTap: () =>
+                                    setState(() => _showAll = !_showAll),
+                                child: AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 200),
+                                  child: Text(
+                                    _showAll ? 'Show less' : 'See all',
+                                    key: ValueKey(_showAll),
+                                    style: TextStyle(
+                                      color: T.accent,
+                                      fontSize: R.fs(13),
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
-                                _FilterChip(
+                              ),
+                            ],
+                          ),
+
+                          SizedBox(height: R.p(12)),
+
+                          // Filter tab switcher
+                          Container(
+                            decoration: BoxDecoration(
+                              color: T.surface,
+                              borderRadius:
+                                  BorderRadius.circular(R.r(12)),
+                              border: Border.all(color: T.border, width: 1),
+                            ),
+                            padding: EdgeInsets.all(R.p(4)),
+                            child: Row(
+                              children: [
+                                _TabItem(
                                   label: 'All',
-                                  isSelected: _filterType == 'ALL',
-                                  onTap: () =>
-                                      setState(() => _filterType = 'ALL'),
+                                  count: provider.transactions.length,
+                                  active: _filterType == 'ALL',
+                                  onTap: () => _switchFilter('ALL'),
+                                  color: T.accent,
                                 ),
-                                SizedBox(width: R.p(6)),
-                                _FilterChip(
+                                SizedBox(width: R.p(4)),
+                                _TabItem(
                                   label: 'Income',
-                                  isSelected: _filterType == 'INCOME',
+                                  count:
+                                      provider.incomeTransactions.length,
+                                  active: _filterType == 'INCOME',
+                                  onTap: () => _switchFilter('INCOME'),
                                   color: T.green,
-                                  onTap: () =>
-                                      setState(() => _filterType = 'INCOME'),
                                 ),
-                                SizedBox(width: R.p(6)),
-                                _FilterChip(
+                                SizedBox(width: R.p(4)),
+                                _TabItem(
                                   label: 'Expense',
-                                  isSelected: _filterType == 'EXPENSE',
+                                  count:
+                                      provider.expenseTransactions.length,
+                                  active: _filterType == 'EXPENSE',
+                                  onTap: () => _switchFilter('EXPENSE'),
                                   color: T.red,
-                                  onTap: () =>
-                                      setState(() => _filterType = 'EXPENSE'),
                                 ),
                               ],
                             ),
+                          ),
 
-                            SizedBox(height: R.p(12)),
+                          SizedBox(height: R.p(10)),
 
-                            ...filteredTransactions.map(
-                              (txn) => Padding(
-                                padding: EdgeInsets.only(bottom: R.p(12)),
-                                child: _TransactionCard(transaction: txn),
-                              ),
-                            ),
-                          ] else if (transactionProvider.isLoading) ...[
-                            SizedBox(height: R.p(24)),
-                            Center(
-                              child: CircularProgressIndicator(color: T.accent),
-                            ),
-                          ] else ...[
-                            SizedBox(height: R.p(24)),
-                            Center(
-                              child: Text(
-                                'No transactions yet',
-                                style: TextStyle(
-                                  color: T.textMuted,
-                                  fontSize: R.fs(14),
+                          // Transaction list card
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 320),
+                            decoration: BoxDecoration(
+                              color: T.surface,
+                              borderRadius:
+                                  BorderRadius.circular(R.r(20)),
+                              border: Border.all(color: T.border, width: 1),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: T.border.withOpacity(0.5),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                            child: provider.isLoading && allFiltered.isEmpty
+                                ? _buildShimmer()
+                                : allFiltered.isEmpty
+                                    ? _buildEmpty()
+                                    : Column(
+                                        children: [
+                                          ..._buildTxnList(visible),
+
+                                          // "See all N" footer
+                                          if (hasMore) ...[
+                                            Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal: R.p(16)),
+                                              child: Divider(
+                                                  color: T.border
+                                                      .withOpacity(0.6),
+                                                  height: 1),
+                                            ),
+                                            Material(
+                                              color: Colors.transparent,
+                                              child: InkWell(
+                                                borderRadius:
+                                                    BorderRadius.vertical(
+                                                  bottom: Radius.circular(
+                                                      R.r(20)),
+                                                ),
+                                                onTap: () => setState(
+                                                    () => _showAll = true),
+                                                child: Padding(
+                                                  padding: EdgeInsets
+                                                      .symmetric(
+                                                          vertical: R.p(14)),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Text(
+                                                        'See all ${allFiltered.length} transactions',
+                                                        style: TextStyle(
+                                                          color: T.accent,
+                                                          fontSize: R.fs(13),
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                      SizedBox(width: R.p(4)),
+                                                      Icon(
+                                                        Icons
+                                                            .keyboard_arrow_down_rounded,
+                                                        color: T.accent,
+                                                        size: R.fs(16),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+
+                                          // "Show less" footer
+                                          if (_showAll &&
+                                              allFiltered.length >
+                                                  _previewCount) ...[
+                                            Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal: R.p(16)),
+                                              child: Divider(
+                                                  color: T.border
+                                                      .withOpacity(0.6),
+                                                  height: 1),
+                                            ),
+                                            Material(
+                                              color: Colors.transparent,
+                                              child: InkWell(
+                                                borderRadius:
+                                                    BorderRadius.vertical(
+                                                  bottom: Radius.circular(
+                                                      R.r(20)),
+                                                ),
+                                                onTap: () => setState(
+                                                    () => _showAll = false),
+                                                child: Padding(
+                                                  padding: EdgeInsets
+                                                      .symmetric(
+                                                          vertical: R.p(14)),
+                                                  child: Row(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    children: [
+                                                      Text(
+                                                        'Show less',
+                                                        style: TextStyle(
+                                                          color:
+                                                              T.textSecondary,
+                                                          fontSize: R.fs(13),
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                      SizedBox(width: R.p(4)),
+                                                      Icon(
+                                                        Icons
+                                                            .keyboard_arrow_up_rounded,
+                                                        color: T.textSecondary,
+                                                        size: R.fs(16),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                          ),
 
                           SizedBox(height: R.p(8)),
                         ]),
@@ -668,6 +785,290 @@ class _ScanScreenState extends State<ScanScreen>
         );
       },
     );
+  }
+
+  // ── Shimmer placeholder ───────────────────────────────────────
+  Widget _buildShimmer() {
+    return Padding(
+      padding: EdgeInsets.all(R.p(20)),
+      child: Column(
+        children: List.generate(
+          _previewCount,
+          (i) => Padding(
+            padding: EdgeInsets.only(bottom: R.p(16)),
+            child: Row(
+              children: [
+                _Shimmer(width: R.p(44), height: R.p(44), radius: R.r(12)),
+                SizedBox(width: R.p(12)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _Shimmer(width: R.p(120), height: R.fs(14)),
+                      SizedBox(height: R.p(6)),
+                      _Shimmer(width: R.p(80), height: R.fs(11)),
+                    ],
+                  ),
+                ),
+                SizedBox(width: R.p(12)),
+                _Shimmer(width: R.p(60), height: R.fs(14)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Empty state ───────────────────────────────────────────────
+  Widget _buildEmpty() {
+    final label = _filterType == 'INCOME'
+        ? 'No income transactions'
+        : _filterType == 'EXPENSE'
+            ? 'No expense transactions'
+            : 'No transactions yet';
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: R.p(32)),
+      child: Center(
+        child: Column(
+          children: [
+            Icon(
+              _filterType == 'INCOME'
+                  ? Icons.account_balance_outlined
+                  : _filterType == 'EXPENSE'
+                      ? Icons.receipt_long_outlined
+                      : Icons.inbox_outlined,
+              color: T.textMuted,
+              size: R.fs(32),
+            ),
+            SizedBox(height: R.p(10)),
+            Text(label,
+                style:
+                    TextStyle(color: T.textMuted, fontSize: R.fs(13))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Transaction rows ──────────────────────────────────────────
+  List<Widget> _buildTxnList(List<Map<String, dynamic>> txns) {
+    return List.generate(txns.length, (i) {
+      final t = txns[i];
+      final type = (t['type'] as String? ?? '').toUpperCase();
+      final isCredit = type == 'INCOME' || type == 'CREDIT';
+      final c = isCredit ? T.green : T.red;
+      final amount = (t['amount'] as num?)?.toDouble() ?? 0.0;
+      final category = t['category'] as String? ?? 'General';
+      final description = t['description'] as String? ?? '';
+      final dateRaw = t['date'] as String? ?? '';
+      final isRecurring = t['isRecurring'] as bool? ?? false;
+
+      // Format date nicely
+      String dateLabel = dateRaw;
+      try {
+        final d = DateTime.tryParse(dateRaw);
+        if (d != null) {
+          final now = DateTime.now();
+          final diff = now.difference(d).inDays;
+          if (diff == 0) {
+            dateLabel = 'Today';
+          } else if (diff == 1) {
+            dateLabel = 'Yesterday';
+          } else {
+            const months = [
+              '',
+              'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+            ];
+            dateLabel = '${d.day} ${months[d.month]} ${d.year}';
+          }
+        }
+      } catch (_) {}
+
+      // Format amount
+      String fmtAmount(double v) {
+        if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(1)}L';
+        if (v >= 1000) {
+          final s = v.toStringAsFixed(0);
+          final buf = StringBuffer();
+          int rem = s.length % 3;
+          if (rem != 0) buf.write(s.substring(0, rem));
+          for (int j = rem; j < s.length; j += 3) {
+            if (buf.isNotEmpty) buf.write(',');
+            buf.write(s.substring(j, j + 3));
+          }
+          return '₹$buf';
+        }
+        return '₹${v.toStringAsFixed(0)}';
+      }
+
+      IconData catIcon = _catIcon(category);
+
+      return Column(
+        children: [
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.vertical(
+                top: i == 0 ? Radius.circular(R.r(20)) : Radius.zero,
+                bottom: Radius.zero,
+              ),
+              onTap: () {},
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: R.p(16), vertical: R.p(13)),
+                child: Row(
+                  children: [
+                    // Icon
+                    Container(
+                      width: R.p(44).clamp(38.0, 50.0),
+                      height: R.p(44).clamp(38.0, 50.0),
+                      decoration: BoxDecoration(
+                        color: c.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(R.r(12)),
+                      ),
+                      child:
+                          Icon(catIcon, color: c, size: R.fs(20)),
+                    ),
+                    SizedBox(width: R.p(12)),
+                    // Info
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  category,
+                                  style: TextStyle(
+                                    color: T.textPrimary,
+                                    fontSize: R.fs(14),
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.2,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: R.p(3)),
+                          Row(
+                            children: [
+                              // Type badge
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: R.p(6),
+                                    vertical: R.p(2)),
+                                decoration: BoxDecoration(
+                                  color: c.withOpacity(0.12),
+                                  borderRadius:
+                                      BorderRadius.circular(R.r(5)),
+                                ),
+                                child: Text(
+                                  isCredit ? 'IN' : 'OUT',
+                                  style: TextStyle(
+                                    color: c,
+                                    fontSize: R.fs(9),
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                              ),
+                              if (isRecurring) ...[
+                                SizedBox(width: R.p(5)),
+                                Icon(Icons.repeat_rounded,
+                                    color: T.accent,
+                                    size: R.fs(10)),
+                              ],
+                              SizedBox(width: R.p(6)),
+                              Container(
+                                  width: 3,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                      color: T.textMuted,
+                                      shape: BoxShape.circle)),
+                              SizedBox(width: R.p(6)),
+                              Text(
+                                dateLabel,
+                                style: TextStyle(
+                                  color: T.textMuted,
+                                  fontSize: R.fs(11),
+                                ),
+                              ),
+                              if (description.isNotEmpty) ...[
+                                SizedBox(width: R.p(6)),
+                                Container(
+                                    width: 3,
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                        color: T.textMuted,
+                                        shape: BoxShape.circle)),
+                                SizedBox(width: R.p(6)),
+                                Expanded(
+                                  child: Text(
+                                    description,
+                                    style: TextStyle(
+                                        color: T.textMuted,
+                                        fontSize: R.fs(11)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: R.p(8)),
+                    // Amount
+                    Text(
+                      '${isCredit ? '+' : '-'}${fmtAmount(amount)}',
+                      style: TextStyle(
+                        color: c,
+                        fontSize: R.fs(14),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (i < txns.length - 1)
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: R.p(16)),
+              child:
+                  Divider(color: T.border.withOpacity(0.6), height: 1),
+            ),
+        ],
+      );
+    });
+  }
+
+  static IconData _catIcon(String cat) {
+    final c = cat.toLowerCase();
+    if (c.contains('food') || c.contains('dining') || c.contains('restaurant'))
+      return Icons.fastfood_rounded;
+    if (c.contains('salary') || c.contains('income'))
+      return Icons.account_balance_rounded;
+    if (c.contains('transport') || c.contains('travel'))
+      return Icons.directions_car_rounded;
+    if (c.contains('subscri') || c.contains('stream'))
+      return Icons.play_circle_rounded;
+    if (c.contains('grocer') || c.contains('super'))
+      return Icons.local_grocery_store_rounded;
+    if (c.contains('shop') || c.contains('cloth'))
+      return Icons.shopping_bag_rounded;
+    if (c.contains('medical') || c.contains('health'))
+      return Icons.local_hospital_rounded;
+    if (c.contains('invest')) return Icons.trending_up_rounded;
+    if (c.contains('bill') || c.contains('util'))
+      return Icons.receipt_long_rounded;
+    if (c.contains('entertain')) return Icons.movie_rounded;
+    return Icons.currency_rupee_rounded;
   }
 
   Color _typeColor(String type) {
@@ -685,46 +1086,69 @@ class _ScanScreenState extends State<ScanScreen>
     }
   }
 }
-
-// ═══════════════════════════════════════════════════════════════
-// FILTER CHIP
-// ═══════════════════════════════════════════════════════════════
-class _FilterChip extends StatelessWidget {
+class _TabItem extends StatelessWidget {
   final String label;
-  final bool isSelected;
-  final Color? color;
+  final int count;
+  final bool active;
   final VoidCallback onTap;
+  final Color color;
 
-  const _FilterChip({
+  const _TabItem({
     required this.label,
-    required this.isSelected,
-    this.color,
+    required this.count,
+    required this.active,
     required this.onTap,
+    required this.color,
   });
 
   @override
   Widget build(BuildContext context) {
-    final chipColor = color ?? T.accent;
-
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: R.p(12), vertical: R.p(6)),
-        decoration: BoxDecoration(
-          color: isSelected ? chipColor.withOpacity(0.15) : T.elevated,
-          borderRadius: BorderRadius.circular(R.r(20)),
-          border: Border.all(
-            color: isSelected ? chipColor : T.border,
-            width: isSelected ? 1.5 : 1,
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.symmetric(vertical: R.p(8)),
+          decoration: BoxDecoration(
+            color: active ? color.withOpacity(0.14) : Colors.transparent,
+            borderRadius: BorderRadius.circular(R.r(9)),
+            border: active
+                ? Border.all(color: color.withOpacity(0.35), width: 1)
+                : null,
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? chipColor : T.textSecondary,
-            fontSize: R.fs(11),
-            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  color: active ? color : T.textSecondary,
+                  fontSize: R.fs(12),
+                  fontWeight:
+                      active ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+              SizedBox(width: R.p(5)),
+              Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: R.p(5), vertical: R.p(1)),
+                decoration: BoxDecoration(
+                  color: active
+                      ? color.withOpacity(0.18)
+                      : T.border.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(R.r(20)),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: active ? color : T.textMuted,
+                    fontSize: R.fs(10),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -733,255 +1157,58 @@ class _FilterChip extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TRANSACTION CARD
+// SHIMMER
 // ═══════════════════════════════════════════════════════════════
-class _TransactionCard extends StatelessWidget {
-  final Map<String, dynamic> transaction;
+class _Shimmer extends StatefulWidget {
+  final double width, height;
+  final double? radius;
+  const _Shimmer(
+      {required this.width, required this.height, this.radius});
 
-  const _TransactionCard({required this.transaction});
+  @override
+  State<_Shimmer> createState() => _ShimmerState();
+}
 
-  Color _getTypeColor(String type) {
-    switch (type) {
-      case 'INCOME':
-        return T.green;
-      case 'EXPENSE':
-        return T.red;
-      case 'TRANSFER':
-        return T.accent;
-      case 'INVESTMENT':
-        return T.gold;
-      default:
-        return T.textSecondary;
-    }
+class _ShimmerState extends State<_Shimmer>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ac;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ac = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
+    _anim = CurvedAnimation(parent: _ac, curve: Curves.easeInOut);
   }
 
-  IconData _getTypeIcon(String type) {
-    switch (type) {
-      case 'INCOME':
-        return Icons.arrow_downward_rounded;
-      case 'EXPENSE':
-        return Icons.arrow_upward_rounded;
-      case 'TRANSFER':
-        return Icons.swap_horiz_rounded;
-      case 'INVESTMENT':
-        return Icons.trending_up_rounded;
-      default:
-        return Icons.circle;
-    }
-  }
-
-  IconData _getCategoryIcon(String category) {
-    switch (category) {
-      case 'Food & Dining':
-        return Icons.restaurant_rounded;
-      case 'Transport':
-        return Icons.directions_car_rounded;
-      case 'Shopping':
-        return Icons.shopping_bag_rounded;
-      case 'Bills & Utilities':
-        return Icons.receipt_rounded;
-      case 'Healthcare':
-        return Icons.local_hospital_rounded;
-      case 'Entertainment':
-        return Icons.movie_rounded;
-      case 'Salary':
-        return Icons.account_balance_wallet_rounded;
-      case 'Investment':
-        return Icons.show_chart_rounded;
-      default:
-        return Icons.category_rounded;
-    }
-  }
-
-  String _formatAmount(dynamic amount) {
-    if (amount is String) {
-      return double.tryParse(amount)?.toStringAsFixed(2) ?? amount;
-    } else if (amount is num) {
-      return amount.toStringAsFixed(2);
-    }
-    return '0.00';
+  @override
+  void dispose() {
+    _ac.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final type = transaction['type'] as String;
-    final amount = _formatAmount(transaction['amount']);
-    final category = transaction['category'] as String;
-    final date = transaction['date'] as String;
-    final description = transaction['description'] as String? ?? '';
-    final recurring = transaction['isRecurring'] as bool? ?? false;
-    final typeColor = _getTypeColor(type);
-
-    return _SCard(
-      child: Row(
-        children: [
-          Container(
-            width: R.p(44).clamp(38.0, 50.0),
-            height: R.p(44).clamp(38.0, 50.0),
-            decoration: BoxDecoration(
-              color: typeColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(R.r(12)),
-            ),
-            child: Icon(
-              _getCategoryIcon(category),
-              color: typeColor,
-              size: R.fs(20),
-            ),
-          ),
-          SizedBox(width: R.p(14)),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        category,
-                        style: TextStyle(
-                          color: T.textPrimary,
-                          fontSize: R.fs(15),
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '₹ $amount',
-                      style: TextStyle(
-                        color: typeColor,
-                        fontSize: R.fs(16),
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: R.p(4)),
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: R.p(8),
-                        vertical: R.p(3),
-                      ),
-                      decoration: BoxDecoration(
-                        color: typeColor.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(R.r(6)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _getTypeIcon(type),
-                            color: typeColor,
-                            size: R.fs(11),
-                          ),
-                          SizedBox(width: R.p(4)),
-                          Text(
-                            type.toLowerCase().capitalize(),
-                            style: TextStyle(
-                              color: typeColor,
-                              fontSize: R.fs(10),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (recurring) ...[
-                      SizedBox(width: R.p(6)),
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: R.p(6),
-                          vertical: R.p(3),
-                        ),
-                        decoration: BoxDecoration(
-                          color: T.accent.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(R.r(6)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.repeat_rounded,
-                              color: T.accent,
-                              size: R.fs(10),
-                            ),
-                            SizedBox(width: R.p(3)),
-                            Text(
-                              'Recurring',
-                              style: TextStyle(
-                                color: T.accent,
-                                fontSize: R.fs(9),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-                SizedBox(height: R.p(6)),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.calendar_today_rounded,
-                      color: T.textMuted,
-                      size: R.fs(11),
-                    ),
-                    SizedBox(width: R.p(4)),
-                    Text(
-                      date,
-                      style: TextStyle(
-                        color: T.textSecondary,
-                        fontSize: R.fs(11),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    if (description.isNotEmpty) ...[
-                      SizedBox(width: R.p(8)),
-                      Text(
-                        '•',
-                        style: TextStyle(
-                          color: T.textMuted,
-                          fontSize: R.fs(11),
-                        ),
-                      ),
-                      SizedBox(width: R.p(8)),
-                      Expanded(
-                        child: Text(
-                          description,
-                          style: TextStyle(
-                            color: T.textSecondary,
-                            fontSize: R.fs(11),
-                            fontWeight: FontWeight.w400,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AnimatedBuilder(
+      animation: _anim,
+      builder: (_, __) => Container(
+        width: widget.width,
+        height: widget.height + 2,
+        decoration: BoxDecoration(
+          color: T.border.withOpacity(0.3 + _anim.value * 0.4),
+          borderRadius: BorderRadius.circular(widget.radius ?? 4),
+        ),
       ),
     );
   }
 }
 
-extension StringExtension on String {
-  String capitalize() {
-    return "${this[0].toUpperCase()}${substring(1).toLowerCase()}";
-  }
-}
+// ═══════════════════════════════════════════════════════════════
+// ALL SUPPORTING WIDGETS (unchanged from original)
+// ═══════════════════════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════════════════════
-// ACCOUNT SELECTOR
-// ═══════════════════════════════════════════════════════════════
 class _AccountSelector extends StatelessWidget {
   final String selected;
   final List<(String, String, String)> accounts;
@@ -999,11 +1226,8 @@ class _AccountSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sel = accounts.firstWhere(
-      (a) => a.$1 == selected,
-      orElse: () => accounts.first,
-    );
-
+    final sel = accounts.firstWhere((a) => a.$1 == selected,
+        orElse: () => accounts.first);
     return Column(
       children: [
         GestureDetector(
@@ -1030,48 +1254,37 @@ class _AccountSelector extends StatelessWidget {
                   width: R.p(36).clamp(30.0, 44.0),
                   height: R.p(36).clamp(30.0, 44.0),
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [T.accent, T.accentSoft]),
+                    gradient:
+                        LinearGradient(colors: [T.accent, T.accentSoft]),
                     borderRadius: BorderRadius.circular(R.r(10)),
                   ),
-                  child: Icon(
-                    Icons.account_balance_rounded,
-                    color: Colors.white,
-                    size: R.fs(16),
-                  ),
+                  child: Icon(Icons.account_balance_rounded,
+                      color: Colors.white, size: R.fs(16)),
                 ),
                 SizedBox(width: R.p(12)),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        sel.$1,
-                        style: TextStyle(
-                          color: T.textPrimary,
-                          fontSize: R.fs(14),
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
+                      Text(sel.$1,
+                          style: TextStyle(
+                              color: T.textPrimary,
+                              fontSize: R.fs(14),
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2)),
                       SizedBox(height: R.p(2)),
-                      Text(
-                        sel.$2,
-                        style: TextStyle(
-                          color: T.textSecondary,
-                          fontSize: R.fs(11),
-                        ),
-                      ),
+                      Text(sel.$2,
+                          style: TextStyle(
+                              color: T.textSecondary,
+                              fontSize: R.fs(11))),
                     ],
                   ),
                 ),
                 AnimatedRotation(
                   turns: isOpen ? 0.5 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    color: T.textSecondary,
-                    size: R.fs(20),
-                  ),
+                  child: Icon(Icons.keyboard_arrow_down_rounded,
+                      color: T.textSecondary, size: R.fs(20)),
                 ),
               ],
             ),
@@ -1090,17 +1303,11 @@ class _AccountSelector extends StatelessWidget {
                     ),
                     border: Border(
                       left: BorderSide(
-                        color: T.accent.withOpacity(0.6),
-                        width: 1.5,
-                      ),
+                          color: T.accent.withOpacity(0.6), width: 1.5),
                       right: BorderSide(
-                        color: T.accent.withOpacity(0.6),
-                        width: 1.5,
-                      ),
+                          color: T.accent.withOpacity(0.6), width: 1.5),
                       bottom: BorderSide(
-                        color: T.accent.withOpacity(0.6),
-                        width: 1.5,
-                      ),
+                          color: T.accent.withOpacity(0.6), width: 1.5),
                     ),
                   ),
                   child: Column(
@@ -1111,25 +1318,22 @@ class _AccountSelector extends StatelessWidget {
                         child: Container(
                           width: double.infinity,
                           padding: EdgeInsets.symmetric(
-                            horizontal: R.p(14),
-                            vertical: R.p(12),
-                          ),
+                              horizontal: R.p(14), vertical: R.p(12)),
                           decoration: BoxDecoration(
                             color: isSel
                                 ? T.accent.withOpacity(0.1)
                                 : Colors.transparent,
                             border: Border(
-                              top: BorderSide(
-                                color: T.border.withOpacity(0.5),
-                                width: 1,
-                              ),
-                            ),
+                                top: BorderSide(
+                                    color: T.border.withOpacity(0.5),
+                                    width: 1)),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.account_balance_wallet_rounded,
-                                color: isSel ? T.accent : T.textSecondary,
+                                color:
+                                    isSel ? T.accent : T.textSecondary,
                                 size: R.fs(15),
                               ),
                               SizedBox(width: R.p(10)),
@@ -1137,7 +1341,9 @@ class _AccountSelector extends StatelessWidget {
                                 child: Text(
                                   '${a.$1} · ${a.$2}',
                                   style: TextStyle(
-                                    color: isSel ? T.accent : T.textSecondary,
+                                    color: isSel
+                                        ? T.accent
+                                        : T.textSecondary,
                                     fontSize: R.fs(13),
                                     fontWeight: isSel
                                         ? FontWeight.w700
@@ -1146,11 +1352,8 @@ class _AccountSelector extends StatelessWidget {
                                 ),
                               ),
                               if (isSel)
-                                Icon(
-                                  Icons.check_rounded,
-                                  color: T.accent,
-                                  size: R.fs(16),
-                                ),
+                                Icon(Icons.check_rounded,
+                                    color: T.accent, size: R.fs(16)),
                             ],
                           ),
                         ),
@@ -1165,21 +1368,16 @@ class _AccountSelector extends StatelessWidget {
   }
 }
 
-// Continue with remaining widget classes...
-// (ActionButton, DropField, TextField, ReadOnlyField, RecurringRow, OutlineBtn, GradientBtn, SCard, FieldLabel, Divider)
-// These remain the same as in the previous version
-
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final List<Color> gradient;
   final VoidCallback onTap;
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.gradient,
-    required this.onTap,
-  });
+  const _ActionButton(
+      {required this.icon,
+      required this.label,
+      required this.gradient,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1193,17 +1391,15 @@ class _ActionButton extends StatelessWidget {
           height: R.p(50).clamp(44.0, 58.0),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: gradient,
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
+                colors: gradient,
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight),
             borderRadius: BorderRadius.circular(R.r(14)),
             boxShadow: [
               BoxShadow(
-                color: gradient.first.withOpacity(0.3),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
+                  color: gradient.first.withOpacity(0.3),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4))
             ],
           ),
           child: Row(
@@ -1211,15 +1407,12 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: Colors.white, size: R.fs(18)),
               SizedBox(width: R.p(10)),
-              Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: R.fs(14),
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.2,
-                ),
-              ),
+              Text(label,
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: R.fs(14),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2)),
             ],
           ),
         ),
@@ -1256,9 +1449,7 @@ class _DropField extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             padding: EdgeInsets.symmetric(
-              horizontal: R.p(14),
-              vertical: R.p(13),
-            ),
+                horizontal: R.p(14), vertical: R.p(13)),
             decoration: BoxDecoration(
               color: T.surface,
               borderRadius: BorderRadius.only(
@@ -1271,8 +1462,8 @@ class _DropField extends StatelessWidget {
                 color: isOpen
                     ? accent.withOpacity(0.7)
                     : value.isEmpty
-                    ? T.border
-                    : accent.withOpacity(0.4),
+                        ? T.border
+                        : accent.withOpacity(0.4),
                 width: isOpen ? 1.5 : 1,
               ),
             ),
@@ -1293,11 +1484,8 @@ class _DropField extends StatelessWidget {
                 AnimatedRotation(
                   turns: isOpen ? 0.5 : 0,
                   duration: const Duration(milliseconds: 180),
-                  child: Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    color: T.textSecondary,
-                    size: R.fs(18),
-                  ),
+                  child: Icon(Icons.keyboard_arrow_down_rounded,
+                      color: T.textSecondary, size: R.fs(18)),
                 ),
               ],
             ),
@@ -1317,17 +1505,11 @@ class _DropField extends StatelessWidget {
                     ),
                     border: Border(
                       left: BorderSide(
-                        color: accent.withOpacity(0.7),
-                        width: 1.5,
-                      ),
+                          color: accent.withOpacity(0.7), width: 1.5),
                       right: BorderSide(
-                        color: accent.withOpacity(0.7),
-                        width: 1.5,
-                      ),
+                          color: accent.withOpacity(0.7), width: 1.5),
                       bottom: BorderSide(
-                        color: accent.withOpacity(0.7),
-                        width: 1.5,
-                      ),
+                          color: accent.withOpacity(0.7), width: 1.5),
                     ),
                   ),
                   child: SingleChildScrollView(
@@ -1339,40 +1521,32 @@ class _DropField extends StatelessWidget {
                           child: Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(
-                              horizontal: R.p(14),
-                              vertical: R.p(11),
-                            ),
+                                horizontal: R.p(14), vertical: R.p(11)),
                             decoration: BoxDecoration(
                               color: isSel
                                   ? accent.withOpacity(0.1)
                                   : Colors.transparent,
                               border: Border(
-                                top: BorderSide(
-                                  color: T.border.withOpacity(0.4),
-                                  width: 1,
-                                ),
-                              ),
+                                  top: BorderSide(
+                                      color: T.border.withOpacity(0.4),
+                                      width: 1)),
                             ),
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: Text(
-                                    item,
-                                    style: TextStyle(
-                                      color: isSel ? accent : T.textSecondary,
-                                      fontSize: R.fs(13),
-                                      fontWeight: isSel
-                                          ? FontWeight.w700
-                                          : FontWeight.w500,
-                                    ),
-                                  ),
+                                  child: Text(item,
+                                      style: TextStyle(
+                                          color: isSel
+                                              ? accent
+                                              : T.textSecondary,
+                                          fontSize: R.fs(13),
+                                          fontWeight: isSel
+                                              ? FontWeight.w700
+                                              : FontWeight.w500)),
                                 ),
                                 if (isSel)
-                                  Icon(
-                                    Icons.check_rounded,
-                                    color: accent,
-                                    size: R.fs(15),
-                                  ),
+                                  Icon(Icons.check_rounded,
+                                      color: accent, size: R.fs(15)),
                               ],
                             ),
                           ),
@@ -1388,7 +1562,7 @@ class _DropField extends StatelessWidget {
   }
 }
 
-class _TextField extends StatefulWidget {
+class _TField extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
   final TextInputType keyboardType;
@@ -1397,7 +1571,7 @@ class _TextField extends StatefulWidget {
   final int maxLines;
   final VoidCallback? onTap;
 
-  const _TextField({
+  const _TField({
     required this.controller,
     required this.hint,
     required this.keyboardType,
@@ -1408,10 +1582,10 @@ class _TextField extends StatefulWidget {
   });
 
   @override
-  State<_TextField> createState() => _TextFieldState();
+  State<_TField> createState() => _TFieldState();
 }
 
-class _TextFieldState extends State<_TextField> {
+class _TFieldState extends State<_TField> {
   final _focus = FocusNode();
   bool _focused = false;
 
@@ -1441,10 +1615,9 @@ class _TextFieldState extends State<_TextField> {
         boxShadow: _focused
             ? [
                 BoxShadow(
-                  color: T.accent.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
+                    color: T.accent.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3))
               ]
             : [],
       ),
@@ -1456,32 +1629,29 @@ class _TextFieldState extends State<_TextField> {
         readOnly: widget.onTap != null,
         onTap: widget.onTap,
         style: TextStyle(
-          color: T.textPrimary,
-          fontSize: R.fs(14),
-          fontWeight: FontWeight.w500,
-        ),
+            color: T.textPrimary,
+            fontSize: R.fs(14),
+            fontWeight: FontWeight.w500),
         decoration: InputDecoration(
           hintText: widget.hint,
-          hintStyle: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+          hintStyle:
+              TextStyle(color: T.textMuted, fontSize: R.fs(13)),
           prefixIcon: widget.prefix != null
               ? Padding(
-                  padding: EdgeInsets.only(left: R.p(12), right: R.p(6)),
-                  child: widget.prefix,
-                )
+                  padding:
+                      EdgeInsets.only(left: R.p(12), right: R.p(6)),
+                  child: widget.prefix)
               : null,
           prefixIconConstraints: const BoxConstraints(),
           suffixIcon: widget.suffix != null
               ? Padding(
                   padding: EdgeInsets.only(right: R.p(12)),
-                  child: widget.suffix,
-                )
+                  child: widget.suffix)
               : null,
           suffixIconConstraints: const BoxConstraints(),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(
-            horizontal: R.p(14),
-            vertical: R.p(13),
-          ),
+              horizontal: R.p(14), vertical: R.p(13)),
         ),
       ),
     );
@@ -1496,20 +1666,18 @@ class _ReadOnlyField extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: R.p(14), vertical: R.p(13)),
+      padding:
+          EdgeInsets.symmetric(horizontal: R.p(14), vertical: R.p(13)),
       decoration: BoxDecoration(
         color: T.elevated,
         borderRadius: BorderRadius.circular(R.r(12)),
         border: Border.all(color: T.border, width: 1),
       ),
-      child: Text(
-        value,
-        style: TextStyle(
-          color: T.textSecondary,
-          fontSize: R.fs(14),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
+      child: Text(value,
+          style: TextStyle(
+              color: T.textSecondary,
+              fontSize: R.fs(14),
+              fontWeight: FontWeight.w500)),
     );
   }
 }
@@ -1525,7 +1693,8 @@ class _RecurringRow extends StatelessWidget {
       onTap: () => onChanged(!value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(horizontal: R.p(16), vertical: R.p(14)),
+        padding: EdgeInsets.symmetric(
+            horizontal: R.p(16), vertical: R.p(14)),
         decoration: BoxDecoration(
           color: value ? T.accent.withOpacity(0.08) : T.elevated,
           borderRadius: BorderRadius.circular(R.r(14)),
@@ -1536,29 +1705,23 @@ class _RecurringRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.repeat_rounded,
-              color: value ? T.accent : T.textSecondary,
-              size: R.fs(18),
-            ),
+            Icon(Icons.repeat_rounded,
+                color: value ? T.accent : T.textSecondary,
+                size: R.fs(18)),
             SizedBox(width: R.p(12)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Recurring transaction',
-                    style: TextStyle(
-                      color: value ? T.accent : T.textPrimary,
-                      fontSize: R.fs(14),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                  Text('Recurring transaction',
+                      style: TextStyle(
+                          color: value ? T.accent : T.textPrimary,
+                          fontSize: R.fs(14),
+                          fontWeight: FontWeight.w600)),
                   if (value)
-                    Text(
-                      'Will repeat monthly',
-                      style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
-                    ),
+                    Text('Will repeat monthly',
+                        style: TextStyle(
+                            color: T.textMuted, fontSize: R.fs(11))),
                 ],
               ),
             ),
@@ -1577,7 +1740,9 @@ class _RecurringRow extends StatelessWidget {
               child: AnimatedAlign(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeInOut,
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+                alignment: value
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
                 child: Container(
                   width: R.p(18).clamp(14.0, 22.0),
                   height: R.p(18).clamp(14.0, 22.0),
@@ -1586,10 +1751,9 @@ class _RecurringRow extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 4,
-                        offset: Offset(0, 1),
-                      ),
+                          color: Colors.black26,
+                          blurRadius: 4,
+                          offset: Offset(0, 1))
                     ],
                   ),
                 ),
@@ -1606,11 +1770,8 @@ class _OutlineBtn extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
-  const _OutlineBtn({
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
+  const _OutlineBtn(
+      {required this.label, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1627,14 +1788,11 @@ class _OutlineBtn extends StatelessWidget {
             border: Border.all(color: color.withOpacity(0.5), width: 1.5),
           ),
           child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: color,
-                fontSize: R.fs(14),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+            child: Text(label,
+                style: TextStyle(
+                    color: color,
+                    fontSize: R.fs(14),
+                    fontWeight: FontWeight.w700)),
           ),
         ),
       ),
@@ -1645,7 +1803,11 @@ class _OutlineBtn extends StatelessWidget {
 class _GradientBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
-  const _GradientBtn({required this.label, required this.onTap});
+  final bool isLoading;
+  const _GradientBtn(
+      {required this.label,
+      required this.onTap,
+      this.isLoading = false});
 
   @override
   Widget build(BuildContext context) {
@@ -1654,34 +1816,35 @@ class _GradientBtn extends StatelessWidget {
       borderRadius: BorderRadius.circular(R.r(14)),
       child: InkWell(
         borderRadius: BorderRadius.circular(R.r(14)),
-        onTap: onTap,
+        onTap: isLoading ? null : onTap,
         child: Ink(
           height: R.p(52).clamp(46.0, 58.0),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [T.accent, T.accentSoft],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
+                colors: [T.accent, T.accentSoft],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight),
             borderRadius: BorderRadius.circular(R.r(14)),
             boxShadow: [
               BoxShadow(
-                color: T.accent.withOpacity(0.38),
-                blurRadius: 18,
-                offset: const Offset(0, 5),
-              ),
+                  color: T.accent.withOpacity(0.38),
+                  blurRadius: 18,
+                  offset: const Offset(0, 5))
             ],
           ),
           child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: R.fs(14),
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.2,
-              ),
-            ),
+            child: isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        color: Colors.white, strokeWidth: 2))
+                : Text(label,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: R.fs(14),
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2)),
           ),
         ),
       ),
@@ -1705,10 +1868,9 @@ class _SCard extends StatelessWidget {
         border: Border.all(color: T.border, width: 1),
         boxShadow: [
           BoxShadow(
-            color: T.border.withOpacity(0.5),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+              color: T.border.withOpacity(0.5),
+              blurRadius: 12,
+              offset: const Offset(0, 4))
         ],
       ),
       child: child,
@@ -1722,15 +1884,12 @@ class _FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: TextStyle(
-        color: T.textSecondary,
-        fontSize: R.fs(12),
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.3,
-      ),
-    );
+    return Text(text,
+        style: TextStyle(
+            color: T.textSecondary,
+            fontSize: R.fs(12),
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.3));
   }
 }
 
@@ -1742,10 +1901,9 @@ class _Divider extends StatelessWidget {
         Expanded(child: Divider(color: T.border, height: 1)),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: R.p(12)),
-          child: Text(
-            'or fill manually',
-            style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
-          ),
+          child: Text('or fill manually',
+              style:
+                  TextStyle(color: T.textMuted, fontSize: R.fs(11))),
         ),
         Expanded(child: Divider(color: T.border, height: 1)),
       ],

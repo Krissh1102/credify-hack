@@ -1,13 +1,25 @@
 import 'dart:math' as math;
 
+import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile/theme/theme.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // DATA MODEL — Investment entry (from Supabase "investments" table)
 // ═══════════════════════════════════════════════════════════════
-enum InvestmentType { SIP, STOCKS, REAL_ESTATE, GOLD, PPF, RD, OTHER }
+enum InvestmentType {
+  SIP,
+  STOCKS,
+  REAL_ESTATE,
+  GOLD,
+  PPF,
+  RD,
+  CRYPTO,
+  MUTUAL_FUNDS,
+  OTHER,
+}
 
 class Investment {
   final String id;
@@ -26,51 +38,37 @@ class Investment {
     this.notes,
   });
 
-  // Seed data matching the Supabase rows visible in the screenshot
-  static final List<Investment> seedData = [
-    Investment(
-      id: '176eba2b-18a4-4886-9a15-d6f6e7117592',
-      name: 'Silver ETF',
-      type: InvestmentType.STOCKS,
-      amount: 35000,
-      date: DateTime(2026, 2, 27),
-    ),
-    Investment(
-      id: '2a1dd5a1-f573-42ef-bcb5-ca09652bb58f',
-      name: 'Buldhana',
-      type: InvestmentType.REAL_ESTATE,
-      amount: 1025210,
-      date: DateTime(2026, 2, 27),
-    ),
-    Investment(
-      id: '499b48f4-f548-4ae8-a1e9-ef539706ca5b',
-      name: 'INFY',
-      type: InvestmentType.STOCKS,
-      amount: 85222,
-      date: DateTime(2024, 2, 27),
-    ),
-    Investment(
-      id: '6f8dec1a-3e53-45da-a046-bfa400048a97',
-      name: 'TATSILV',
-      type: InvestmentType.STOCKS,
-      amount: 5855,
-      date: DateTime(2025, 7, 27),
-    ),
-    Investment(
-      id: '91258326-7964-4b7f-8a89-9ac6c938ca9e',
-      name: 'Gold',
-      type: InvestmentType.OTHER,
-      amount: 85265,
-      date: DateTime(2025, 1, 27),
-    ),
-    Investment(
-      id: 'e8b1ee4c-64f7-4fb3-9c6a-060bf44db0e1',
-      name: 'Vedant Kolte',
-      type: InvestmentType.GOLD,
-      amount: 8565,
-      date: DateTime(2026, 2, 27),
-    ),
-  ];
+  static InvestmentType parseType(String raw) {
+    switch (raw.toUpperCase()) {
+      case 'SIP':
+        return InvestmentType.SIP;
+      case 'STOCKS':
+        return InvestmentType.STOCKS;
+      case 'REAL_ESTATE':
+        return InvestmentType.REAL_ESTATE;
+      case 'GOLD':
+        return InvestmentType.GOLD;
+      case 'PPF':
+        return InvestmentType.PPF;
+      case 'RD':
+        return InvestmentType.RD;
+      case 'CRYPTO':
+        return InvestmentType.CRYPTO;
+      case 'MUTUAL_FUNDS':
+        return InvestmentType.MUTUAL_FUNDS;
+      default:
+        return InvestmentType.OTHER;
+    }
+  }
+
+  factory Investment.fromMap(Map<String, dynamic> m) => Investment(
+    id: m['id'] as String,
+    name: m['name'] as String,
+    type: Investment.parseType(m['type'] as String? ?? 'OTHER'),
+    amount: (m['amount'] as num).toDouble(),
+    date: DateTime.parse(m['date'] as String),
+    notes: m['notes'] as String?,
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -112,8 +110,12 @@ class _SavingsScreenState extends State<SavingsScreen>
   double? _totalGain;
   List<_ChartPoint> _chartPoints = [];
 
-  // Portfolio
-  final List<Investment> _investments = Investment.seedData;
+  // Portfolio — loaded from Supabase
+  List<Investment> _investments = [];
+  bool _loadingInvestments = true;
+  String? _loadError;
+
+  static SupabaseClient get _db => Supabase.instance.client;
 
   @override
   void initState() {
@@ -128,6 +130,8 @@ class _SavingsScreenState extends State<SavingsScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _ac, curve: Curves.easeOutCubic));
     _ac.forward();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInvestments());
   }
 
   @override
@@ -138,6 +142,85 @@ class _SavingsScreenState extends State<SavingsScreen>
     _yearsCtrl.dispose();
     super.dispose();
   }
+
+  // ─── Supabase data fetching ───────────────────────────────────
+
+  Future<void> _loadInvestments() async {
+    setState(() {
+      _loadingInvestments = true;
+      _loadError = null;
+    });
+
+    try {
+      final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
+      if (clerkUserId.isEmpty) {
+        setState(() {
+          _loadError = 'Not authenticated.';
+          _loadingInvestments = false;
+        });
+        return;
+      }
+
+      // Resolve internal UUID from clerk user ID
+      final userRows = await _db
+          .from('users')
+          .select('id')
+          .eq('clerkUserId', clerkUserId)
+          .limit(1);
+
+      if ((userRows as List).isEmpty) {
+        setState(() {
+          _loadError = 'User profile not found.';
+          _loadingInvestments = false;
+        });
+        return;
+      }
+
+      final internalId =
+          (userRows.first as Map<String, dynamic>)['id'] as String;
+
+      // Try with internal UUID first
+      List<Investment> fetched = await _fetchByUserId(internalId);
+
+      // Fallback: try with clerk user ID directly
+      if (fetched.isEmpty) {
+        fetched = await _fetchByUserId(clerkUserId);
+      }
+
+      setState(() {
+        _investments = fetched;
+        _loadingInvestments = false;
+      });
+    } catch (e) {
+      debugPrint('[SavingsScreen] error loading investments: $e');
+      setState(() {
+        _loadError = 'Failed to load investments.';
+        _loadingInvestments = false;
+      });
+    }
+  }
+
+  Future<List<Investment>> _fetchByUserId(String userId) async {
+    try {
+      final rows = await _db
+          .from('investments')
+          .select()
+          .eq('userId', userId)
+          .order('date', ascending: false)
+          .limit(100);
+      final list = rows as List;
+      if (list.isNotEmpty) {
+        return list
+            .map((r) => Investment.fromMap(r as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[SavingsScreen] fetchByUserId($userId) failed: $e');
+    }
+    return [];
+  }
+
+  // ─── Calculator ──────────────────────────────────────────────
 
   void _calculate() {
     FocusScope.of(context).unfocus();
@@ -185,6 +268,37 @@ class _SavingsScreenState extends State<SavingsScreen>
   double get _portfolioTotal =>
       _investments.fold(0, (sum, inv) => sum + inv.amount);
 
+  // ─── Add investment (persists to Supabase) ───────────────────
+
+  Future<void> _addInvestmentToSupabase(Investment inv) async {
+    try {
+      final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
+      if (clerkUserId.isEmpty) return;
+
+      final userRows = await _db
+          .from('users')
+          .select('id')
+          .eq('clerkUserId', clerkUserId)
+          .limit(1);
+
+      if ((userRows as List).isEmpty) return;
+      final internalId =
+          (userRows.first as Map<String, dynamic>)['id'] as String;
+
+      await _db.from('investments').insert({
+        'id': inv.id,
+        'userId': internalId,
+        'name': inv.name,
+        'type': inv.type.name,
+        'amount': inv.amount,
+        'date': inv.date.toIso8601String(),
+        'notes': inv.notes,
+      });
+    } catch (e) {
+      debugPrint('[SavingsScreen] insert investment failed: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     R.init(context);
@@ -216,141 +330,11 @@ class _SavingsScreenState extends State<SavingsScreen>
                   delegate: SliverChildListDelegate([
                     // ── My Portfolio Card ──────────────────────
                     _SCard(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Header row
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'My Portfolio',
-                                      style: TextStyle(
-                                        color: T.textPrimary,
-                                        fontSize: R.fs(16),
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: -0.4,
-                                      ),
-                                    ),
-                                    SizedBox(height: R.p(2)),
-                                    Text(
-                                      '${_investments.length} investments',
-                                      style: TextStyle(
-                                        color: T.textMuted,
-                                        fontSize: R.fs(11),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: R.p(12),
-                                  vertical: R.p(8),
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      T.accent.withOpacity(0.15),
-                                      T.accentSoft.withOpacity(0.1),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(R.r(12)),
-                                  border: Border.all(
-                                    color: T.accent.withOpacity(0.3),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Total Value',
-                                      style: TextStyle(
-                                        color: T.textMuted,
-                                        fontSize: R.fs(9),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    SizedBox(height: R.p(2)),
-                                    Text(
-                                      _fmtAmount(_portfolioTotal),
-                                      style: TextStyle(
-                                        color: T.accent,
-                                        fontSize: R.fs(15),
-                                        fontWeight: FontWeight.w800,
-                                        letterSpacing: -0.5,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          SizedBox(height: R.p(16)),
-
-                          // Portfolio allocation mini bar
-                          _PortfolioAllocationBar(investments: _investments),
-
-                          SizedBox(height: R.p(16)),
-
-                          // Investment list
-                          ..._investments.asMap().entries.map((e) {
-                            final i = e.key;
-                            final inv = e.value;
-                            return Padding(
-                              padding: EdgeInsets.only(
-                                bottom: i < _investments.length - 1
-                                    ? R.p(10)
-                                    : 0,
-                              ),
-                              child: _InvestmentRow(investment: inv),
-                            );
-                          }),
-
-                          SizedBox(height: R.p(14)),
-
-                          // Add investment button
-                          GestureDetector(
-                            onTap: () => _showAddInvestmentSheet(context),
-                            child: Container(
-                              height: R.p(44).clamp(40.0, 52.0),
-                              decoration: BoxDecoration(
-                                color: T.elevated,
-                                borderRadius: BorderRadius.circular(R.r(12)),
-                                border: Border.all(
-                                  color: T.border,
-                                  width: 1,
-                                  // dashed style via decoration below
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.add_circle_outline_rounded,
-                                    color: T.accent,
-                                    size: R.fs(16),
-                                  ),
-                                  SizedBox(width: R.p(6)),
-                                  Text(
-                                    'Add Investment',
-                                    style: TextStyle(
-                                      color: T.accent,
-                                      fontSize: R.fs(13),
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: _loadingInvestments
+                          ? _buildPortfolioLoading()
+                          : _loadError != null
+                          ? _buildPortfolioError()
+                          : _buildPortfolioContent(),
                     ),
 
                     SizedBox(height: R.p(16)),
@@ -608,6 +592,199 @@ class _SavingsScreenState extends State<SavingsScreen>
     );
   }
 
+  // ─── Portfolio card states ─────────────────────────────────
+
+  Widget _buildPortfolioLoading() {
+    return SizedBox(
+      height: R.p(120),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: T.accent, strokeWidth: 2.5),
+            SizedBox(height: R.p(12)),
+            Text(
+              'Loading your portfolio...',
+              style: TextStyle(color: T.textMuted, fontSize: R.fs(12)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortfolioError() {
+    return SizedBox(
+      height: R.p(100),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              color: T.textMuted,
+              size: R.fs(28),
+            ),
+            SizedBox(height: R.p(8)),
+            Text(
+              _loadError ?? 'Something went wrong.',
+              style: TextStyle(color: T.textMuted, fontSize: R.fs(12)),
+            ),
+            SizedBox(height: R.p(10)),
+            GestureDetector(
+              onTap: _loadInvestments,
+              child: Text(
+                'Retry',
+                style: TextStyle(
+                  color: T.accent,
+                  fontSize: R.fs(13),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPortfolioContent() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Header row
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'My Portfolio',
+                    style: TextStyle(
+                      color: T.textPrimary,
+                      fontSize: R.fs(16),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                  SizedBox(height: R.p(2)),
+                  Text(
+                    '${_investments.length} investment${_investments.length == 1 ? '' : 's'}',
+                    style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: R.p(12),
+                vertical: R.p(8),
+              ),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    T.accent.withOpacity(0.15),
+                    T.accentSoft.withOpacity(0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(R.r(12)),
+                border: Border.all(color: T.accent.withOpacity(0.3), width: 1),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Total Value',
+                    style: TextStyle(
+                      color: T.textMuted,
+                      fontSize: R.fs(9),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: R.p(2)),
+                  Text(
+                    _fmtAmount(_portfolioTotal),
+                    style: TextStyle(
+                      color: T.accent,
+                      fontSize: R.fs(15),
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+
+        if (_investments.isEmpty) ...[
+          SizedBox(height: R.p(20)),
+          Center(
+            child: Text(
+              'No investments yet. Add one below!',
+              style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+            ),
+          ),
+          SizedBox(height: R.p(16)),
+        ] else ...[
+          SizedBox(height: R.p(16)),
+
+          // Portfolio allocation mini bar
+          _PortfolioAllocationBar(investments: _investments),
+
+          SizedBox(height: R.p(16)),
+
+          // Investment list
+          ..._investments.asMap().entries.map((e) {
+            final i = e.key;
+            final inv = e.value;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: i < _investments.length - 1 ? R.p(10) : 0,
+              ),
+              child: _InvestmentRow(investment: inv),
+            );
+          }),
+
+          SizedBox(height: R.p(14)),
+        ],
+
+        // Add investment button
+        GestureDetector(
+          onTap: () => _showAddInvestmentSheet(context),
+          child: Container(
+            height: R.p(44).clamp(40.0, 52.0),
+            decoration: BoxDecoration(
+              color: T.elevated,
+              borderRadius: BorderRadius.circular(R.r(12)),
+              border: Border.all(color: T.border, width: 1),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.add_circle_outline_rounded,
+                  color: T.accent,
+                  size: R.fs(16),
+                ),
+                SizedBox(width: R.p(6)),
+                Text(
+                  'Add Investment',
+                  style: TextStyle(
+                    color: T.accent,
+                    fontSize: R.fs(13),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   void _showAddInvestmentSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -617,9 +794,10 @@ class _SavingsScreenState extends State<SavingsScreen>
       ),
       isScrollControlled: true,
       builder: (ctx) => _AddInvestmentSheet(
-        onAdd: (inv) {
-          setState(() => _investments.insert(0, inv));
+        onAdd: (inv) async {
           Navigator.pop(ctx);
+          setState(() => _investments.insert(0, inv));
+          await _addInvestmentToSupabase(inv);
         },
       ),
     );
@@ -661,6 +839,10 @@ class _PortfolioAllocationBar extends StatelessWidget {
         return const Color(0xFFFF8C69);
       case InvestmentType.SIP:
         return const Color(0xFFB47EE5);
+      case InvestmentType.CRYPTO:
+        return const Color(0xFFF7931A);
+      case InvestmentType.MUTUAL_FUNDS:
+        return const Color(0xFF20C997);
       case InvestmentType.OTHER:
         return const Color(0xFFADB5BD);
     }
@@ -680,6 +862,10 @@ class _PortfolioAllocationBar extends StatelessWidget {
         return 'RD';
       case InvestmentType.SIP:
         return 'SIP';
+      case InvestmentType.CRYPTO:
+        return 'Crypto';
+      case InvestmentType.MUTUAL_FUNDS:
+        return 'Mutual Funds';
       case InvestmentType.OTHER:
         return 'Other';
     }
@@ -687,7 +873,6 @@ class _PortfolioAllocationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Group by type
     final Map<InvestmentType, double> grouped = {};
     final total = investments.fold(0.0, (s, i) => s + i.amount);
     for (final inv in investments) {
@@ -775,6 +960,10 @@ class _InvestmentRow extends StatelessWidget {
         return Icons.savings_rounded;
       case InvestmentType.SIP:
         return Icons.trending_up_rounded;
+      case InvestmentType.CRYPTO:
+        return Icons.currency_bitcoin_rounded;
+      case InvestmentType.MUTUAL_FUNDS:
+        return Icons.pie_chart_rounded;
       case InvestmentType.OTHER:
         return Icons.category_rounded;
     }
@@ -794,6 +983,10 @@ class _InvestmentRow extends StatelessWidget {
         return const Color(0xFFFF8C69);
       case InvestmentType.SIP:
         return const Color(0xFFB47EE5);
+      case InvestmentType.CRYPTO:
+        return const Color(0xFFF7931A);
+      case InvestmentType.MUTUAL_FUNDS:
+        return const Color(0xFF20C997);
       case InvestmentType.OTHER:
         return const Color(0xFFADB5BD);
     }
@@ -813,6 +1006,10 @@ class _InvestmentRow extends StatelessWidget {
         return 'Recurring Deposit';
       case InvestmentType.SIP:
         return 'SIP';
+      case InvestmentType.CRYPTO:
+        return 'Crypto';
+      case InvestmentType.MUTUAL_FUNDS:
+        return 'Mutual Funds';
       case InvestmentType.OTHER:
         return 'Other';
     }
@@ -950,11 +1147,13 @@ class _AddInvestmentSheetState extends State<_AddInvestmentSheet> {
 
   static const _typeLabels = {
     InvestmentType.STOCKS: 'Stocks',
+    InvestmentType.MUTUAL_FUNDS: 'Mutual Funds',
+    InvestmentType.CRYPTO: 'Crypto',
     InvestmentType.REAL_ESTATE: 'Real Estate',
     InvestmentType.GOLD: 'Gold',
     InvestmentType.PPF: 'PPF',
     InvestmentType.RD: 'Recurring Deposit',
-    InvestmentType.SIP: 'SIP / Mutual Fund',
+    InvestmentType.SIP: 'SIP',
     InvestmentType.OTHER: 'Other',
   };
 
@@ -1120,9 +1319,8 @@ class _AddInvestmentSheetState extends State<_AddInvestmentSheet> {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// (All widgets below are unchanged from original)
+// DROPDOWN
 // ═══════════════════════════════════════════════════════════════
-
 class _InvestmentDropdown extends StatelessWidget {
   final String value;
   final List<String> items;
@@ -1258,6 +1456,9 @@ class _InvestmentDropdown extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CALC FIELD
+// ═══════════════════════════════════════════════════════════════
 class _CalcField extends StatefulWidget {
   final String label, hint;
   final TextEditingController controller;
@@ -1351,6 +1552,9 @@ class _CalcFieldState extends State<_CalcField> {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// RESULT PILL
+// ═══════════════════════════════════════════════════════════════
 class _ResultPill extends StatelessWidget {
   final String label, value;
   final Color color;
@@ -1397,6 +1601,9 @@ class _ResultPill extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// INVESTED VS RETURN DONUT
+// ═══════════════════════════════════════════════════════════════
 class _InvestedVsReturnDonut extends StatelessWidget {
   final double invested, gain;
   const _InvestedVsReturnDonut({required this.invested, required this.gain});
@@ -1475,6 +1682,9 @@ class _DonutLegend extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// AI TIP
+// ═══════════════════════════════════════════════════════════════
 class _AiTip extends StatelessWidget {
   final String type;
   final double maturity, gain, invested;
@@ -1555,6 +1765,9 @@ class _AiTip extends StatelessWidget {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CHART PAINTERS
+// ═══════════════════════════════════════════════════════════════
 class _ChartPoint {
   final int year;
   final double value;
