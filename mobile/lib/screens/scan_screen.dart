@@ -95,7 +95,7 @@ class _ScanScreenState extends State<ScanScreen>
   void _setDefaultAccount() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final userNotifier = context.watch<UserNotifier>();
+      final userNotifier = context.read<UserNotifier>();
       final defaultAcc = userNotifier.defaultAccount;
 
       if (defaultAcc != null && _selectedAccountId.isEmpty) {

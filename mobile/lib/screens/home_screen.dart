@@ -81,9 +81,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// APP HEADER
-// ═══════════════════════════════════════════════════════════════
 class _AppHeader extends StatelessWidget {
   const _AppHeader();
 
