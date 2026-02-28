@@ -85,7 +85,7 @@ export default function FinancialChatPage() {
     }, []);
 
     return (
-        <CopilotKit publicApiKey="ck_pub_eafff044696b6c71b7d46f200be2efc2">
+        <CopilotKit publicApiKey="ck_pub_0261db02374b586d16ed9098686a0444">
             <CopilotFinancialContext loans={loans} investments={investments} />
 
             <div className="h-screen w-screen">

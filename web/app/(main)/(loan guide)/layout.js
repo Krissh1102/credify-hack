@@ -81,7 +81,7 @@ export default function LoanGuideLayout({ children }) {
   }, []);
 
   return (
-    <CopilotKit publicApiKey="ck_pub_eafff044696b6c71b7d46f200be2efc2">
+    <CopilotKit publicApiKey="ck_pub_0261db02374b586d16ed9098686a0444">
 
       {/* Inject loan context */}
       <CopilotLoanContext loans={loans} />
