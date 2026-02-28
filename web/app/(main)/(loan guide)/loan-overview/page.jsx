@@ -116,14 +116,14 @@ export default function LoanOverviewPage() {
   const nextPayment =
     activeLoans.length > 0
       ? activeLoans.reduce((earliest, loan) => {
-          if (!earliest) return loan;
-          if (!loan.nextPaymentDate) return earliest;
-          if (!earliest.nextPaymentDate) return loan;
-          return new Date(loan.nextPaymentDate) <
-            new Date(earliest.nextPaymentDate)
-            ? loan
-            : earliest;
-        }, null)
+        if (!earliest) return loan;
+        if (!loan.nextPaymentDate) return earliest;
+        if (!earliest.nextPaymentDate) return loan;
+        return new Date(loan.nextPaymentDate) <
+          new Date(earliest.nextPaymentDate)
+          ? loan
+          : earliest;
+      }, null)
       : null;
 
   const loanTypeData = activeLoans.reduce((acc, loan) => {
@@ -257,8 +257,8 @@ export default function LoanOverviewPage() {
             <p className="text-xs text-muted-foreground">
               {nextPayment?.nextPaymentDate
                 ? `On ${new Date(
-                    nextPayment.nextPaymentDate
-                  ).toLocaleDateString()}`
+                  nextPayment.nextPaymentDate
+                ).toLocaleDateString()}`
                 : "No upcoming payments"}
             </p>
           </CardContent>
@@ -307,36 +307,128 @@ export default function LoanOverviewPage() {
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 border-0 shadow-md">
           <CardHeader>
-            <CardTitle>Outstanding Balance Breakdown</CardTitle>
+            <CardTitle className="text-lg font-semibold">
+              Outstanding Balance Breakdown
+            </CardTitle>
             <CardDescription>
-              Distribution of your debt across different loan types.
+              Distribution of your debt across different loan types
             </CardDescription>
           </CardHeader>
-          <CardContent className="h-[300px] w-full">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={loanTypeData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={100}
-                  label
-                >
+
+          <CardContent className="pt-2 pb-6">
+            {loanTypeData.length === 0 ? (
+              <p className="text-center text-muted-foreground py-6">
+                No active loans
+              </p>
+            ) : (
+              <>
+                <div className="h-[320px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={loanTypeData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={90}
+                        outerRadius={125}
+                        paddingAngle={4}
+                        dataKey="value"
+                        cornerRadius={12}
+                        stroke="none"
+                        isAnimationActive
+                        animationDuration={800}
+                        label={({ name, percent, x, y, textAnchor }) => (
+                          <text
+                            x={x}
+                            y={y}
+                            fill="#475569"
+                            textAnchor={textAnchor}
+                            dominantBaseline="central"
+                            className="text-xs font-medium"
+                          >
+                            {name} ({(percent * 100).toFixed(0)}%)
+                          </text>
+                        )}
+                        labelLine={false}
+                      >
+                        {loanTypeData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                            style={{
+                              filter: "drop-shadow(0px 6px 14px rgba(0,0,0,0.08))",
+                            }}
+                          />
+                        ))}
+                      </Pie>
+
+                      <Tooltip
+                        formatter={(value, name) => [
+                          formatCurrency(value),
+                          name,
+                        ]}
+                        contentStyle={{
+                          borderRadius: "14px",
+                          border: "none",
+                          boxShadow:
+                            "0 10px 30px rgba(0,0,0,0.12)",
+                          fontSize: "13px",
+                        }}
+                      />
+
+                      {/* Center Total */}
+                      <text
+                        x="50%"
+                        y="50%"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                      >
+                        <tspan
+                          x="50%"
+                          dy="-6"
+                          className="text-sm fill-slate-400"
+                        >
+                          Total Debt
+                        </tspan>
+                        <tspan
+                          x="50%"
+                          dy="20"
+                          className="text-xl font-bold fill-slate-800"
+                        >
+                          {formatCurrency(
+                            loanTypeData.reduce(
+                              (acc, cur) => acc + cur.value,
+                              0
+                            )
+                          )}
+                        </tspan>
+                      </text>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Custom Legend */}
+                <div className="mt-4 flex flex-wrap gap-4 justify-center text-sm">
                   {loanTypeData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
+                    <div
+                      key={entry.name}
+                      className="flex items-center gap-2 text-slate-600"
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full"
+                        style={{
+                          backgroundColor:
+                            COLORS[index % COLORS.length],
+                        }}
+                      />
+                      {entry.name}
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 

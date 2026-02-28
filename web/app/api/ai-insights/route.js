@@ -16,6 +16,17 @@ function buildPrompt(insightType, data) {
     const expense = transactions.filter((t) => t.type === "EXPENSE").reduce((s, t) => s + Number(t.amount), 0).toFixed(2);
     const totalBalance = accounts.reduce((s, a) => s + Number(a.balance), 0).toFixed(2);
 
+    // Calculate current month's expenses and average monthly spending
+    const now = new Date();
+    const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const currentMonthExpenses = transactions
+        .filter((t) => t.type === "EXPENSE" && new Date(t.date) >= currentMonthStart)
+        .reduce((s, t) => s + Number(t.amount), 0);
+
+    const daysInCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysElapsedInMonth = now.getDate();
+    const projectedMonthlyExpense = (currentMonthExpenses / daysElapsedInMonth * daysInCurrentMonth).toFixed(2);
+
     const categoryBreakdown = transactions
         .filter((t) => t.type === "EXPENSE")
         .reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + Number(t.amount); return acc; }, {});
@@ -37,71 +48,105 @@ function buildPrompt(insightType, data) {
     const jarList = savingsJars.map((j) => `${j.name}: ₹${Number(j.currentAmount).toFixed(0)}/₹${Number(j.targetAmount).toFixed(0)}`).join("; ");
 
     // Shared concise instruction for ALL prompts
-    const BRIEF = `You are a strict, concise personal finance advisor. Reply in EXACTLY 2 to 3 average length sentences (max 40 words total). Start with a status emoji: 🟢 (healthy), 🟡 (needs attention), or 🔴 (critical). No bullet points, no headers, no markdown.`;
+    const BRIEF = `You are a personal finance advisor. Respond ONLY in this exact format:
+HEADLINE: <one short verdict sentence, max 12 words>
+DETAIL: <one actionable sentence, max 20 words>
+Start HEADLINE with a status emoji: 🟢 (healthy), 🟡 (needs attention), or 🔴 (critical). No other text.`;
 
     const CTX = `Income ₹${income} | Expenses ₹${expense} | Budget ${budget ? "₹" + Number(budget.amount).toFixed(0) : "not set"} | Total Account Balance ₹${totalBalance} | Top spend: ${topCategories || "none"}.`;
 
     // Perform math logic programmatically to prevent LLM hallucinations
-    const isOverBudget = budget && Number(expense) > Number(budget.amount);
+    // Use currentMonthExpenses (not 90-day total) to compare against the monthly budget
+    const isOverBudget = budget && currentMonthExpenses > Number(budget.amount);
+    const budgetCompletion = budget ? (currentMonthExpenses / Number(budget.amount)) * 100 : 0;
+    const isBudgetCritical = budgetCompletion >= 90; // 90%+ is critical
+    const isBudgetWarning = budgetCompletion >= 70 && budgetCompletion < 90; // 70-89% is warning
     const hasHighBalance = (Number(totalBalance) + Number(income)) > (Number(expense) * 1.5);
 
-    const MATH_WARNING = isOverBudget
-        ? `CRITICAL INSTRUCTION: You MUST start with 🔴. The user's expenses (₹${expense}) have EXCEEDED their budget (₹${Number(budget.amount).toFixed(0)}). Mention this overspend immediately.`
-        : hasHighBalance
-            ? `CRITICAL INSTRUCTION: You MUST start with 🟢. The user's total balance + income easily covers their expenses. They are well UNDER budget and in excellent financial shape. Do NOT give a critical or yellow warning.`
-            : `CRITICAL INSTRUCTION: The user is within budget. Start with 🟢 or 🟡 based on their top categories.`;
+    let MATH_WARNING;
+    if (isOverBudget) {
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. This month's spending (₹${currentMonthExpenses.toFixed(0)}) has EXCEEDED the monthly budget (₹${Number(budget.amount).toFixed(0)}) by ${(budgetCompletion - 100).toFixed(1)}%. This is a critical situation requiring immediate action.`;
+    } else if (isBudgetCritical) {
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. This month's budget is at ${budgetCompletion.toFixed(1)}% used. This is CRITICAL - they are dangerously close to exceeding their budget (₹${Number(budget.amount).toFixed(0)}). Recommend urgent spending cuts.`;
+    } else if (isBudgetWarning) {
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🟡. This month's budget is at ${budgetCompletion.toFixed(1)}% used. This is a WARNING - they are approaching their budget limit (₹${Number(budget.amount).toFixed(0)}). Recommend monitoring spending closely.`;
+    } else if (hasHighBalance && !budget) {
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🟢. The user's total balance + income easily covers their expenses. They are in excellent financial shape. Do NOT give a critical or yellow warning.`;
+    } else {
+        MATH_WARNING = `CRITICAL INSTRUCTION: The user is within budget (${budgetCompletion.toFixed(1)}% of monthly budget used). Start with 🟢 or 🟡 based on their spending patterns and categories.`;
+    }
 
     const prompts = {
         spending_analysis: `${BRIEF}
 
-Data: ${CTX}
+Data: ${CTX} Current month spent: ₹${currentMonthExpenses.toFixed(0)} in ${daysElapsedInMonth} days.
 ${MATH_WARNING}
-Task: Give a 2-3 sentence spending health verdict.`,
+Task: Give a spending verdict in the HEADLINE. Put one specific saving tip or praise in DETAIL.`,
 
-        budget_prediction: `${BRIEF}
+        budget_prediction: (function () {
+            const budgetAmt = budget ? Number(budget.amount) : 0;
+            const projNum = Number(projectedMonthlyExpense);
+            const projPct = budgetAmt ? (projNum / budgetAmt) * 100 : 0;
 
-Data: ${CTX} Recurring expenses count: ${recurringExpenses.length}.
-${MATH_WARNING}
-Task: Predict next month's total spending in 2-3 sentences and say whether it will breach the budget. If it will exceed the budget, explicitly suggest 1-2 specific areas to reduce spending based on their top spend categories.`,
+            let instruction;
+            if (!budget) {
+                instruction = `CRITICAL INSTRUCTION: Start with 🟡. No budget is set. Encourage the user to set one.`;
+            } else if (projNum > budgetAmt) {
+                instruction = `CRITICAL INSTRUCTION: Start with 🔴. Spending is ON TRACK TO EXCEED the budget. Projected ₹${projNum.toFixed(0)} vs budget ₹${budgetAmt.toFixed(0)}. Suggest cutting top expense categories.`;
+            } else if (projPct >= 75) {
+                instruction = `CRITICAL INSTRUCTION: Start with 🟡. Spending is approaching the limit — projected ₹${projNum.toFixed(0)} (${projPct.toFixed(0)}% of ₹${budgetAmt.toFixed(0)} budget). Advise monitoring closely.`;
+            } else {
+                instruction = `CRITICAL INSTRUCTION: Start with 🟢. Projected month spending is ₹${projNum.toFixed(0)}, only ${projPct.toFixed(0)}% of the ₹${budgetAmt.toFixed(0)} budget. This is EXCELLENT budget discipline. Praise the user and confirm they are well within limits.`;
+            }
+
+            return `${BRIEF}
+
+Data: Income ₹${income} | Expenses so far ₹${currentMonthExpenses.toFixed(0)} in ${daysElapsedInMonth} days | Projected full-month ₹${projNum.toFixed(0)} | Budget ₹${budgetAmt.toFixed(0)} | Recurring expenses: ${recurringExpenses.length}.
+${instruction}
+Task: Put the budget projection verdict in HEADLINE. Put one specific trim tip or encouragement in DETAIL.`;
+        })(),
 
         anomaly_detection: `${BRIEF}
 
 Data: ${CTX}
 Recent transactions (latest 20): ${transactions.slice(0, 20).map((t) => `${t.type} ₹${Number(t.amount).toFixed(0)} ${t.category}`).join(", ")}.
-Task: In 2-3 sentences, flag any unusual or anomalous spending patterns. If none are found and balance is high, start with 🟢 and state everything looks normal.`,
+${MATH_WARNING}
+Task: Put the anomaly verdict in HEADLINE (mention any unusual spike category). Put what to watch or confirm normal in DETAIL.`,
 
         future_expenditure: `${BRIEF}
 
 Data: ${CTX}
-Task: In 2-3 sentences, project the user's financial trajectory over the next month and highlight the main risk.`,
+Task: Put a one-phrase trajectory verdict in HEADLINE. Put the single biggest financial risk to watch next month in DETAIL.`,
 
         spending_leakage: `${BRIEF}
 
-Data: ${CTX}
+Data: ${CTX} Budget completion: ${budgetCompletion.toFixed(1)}%.
 Recurring expenses: ${recurringExpenses.map((t) => `₹${Number(t.amount).toFixed(0)} ${t.description || t.category}`).join(", ") || "none"}.
-Task: In 2-3 sentences, identify the biggest spending leakage and what to do about it. If expenses are low compared to income/balance, start with 🟢 and state there is minimal leakage.`,
+${MATH_WARNING}
+Task: Name the top leakage category in the HEADLINE. Give one concrete fix action in DETAIL.`,
+
+        savings_rate: `${BRIEF}
+
+Data: ${CTX} Budget completion: ${budgetCompletion.toFixed(1)}%. Savings jars: ${jarList || "none set"}.
+${MATH_WARNING}
+Task: State current savings posture in HEADLINE. Give one specific savings action in DETAIL.`,
 
         investment_health: `${BRIEF}
 
 Data: Total invested ₹${totalInvested} across ${investments.length} investments: ${invList || "none"}. FDs: ${fixedDeposits.length}. PPF: ${ppfs.length ? "₹" + ppfs[ppfs.length - 1].balance : "none"}.
-Task: In 2-3 sentences, assess portfolio health and give one actionable improvement.`,
+Task: State portfolio health verdict in HEADLINE. Give one actionable improvement in DETAIL.`,
 
         debt_optimization: `${BRIEF}
 
 Data: Active loans: ${loanList || "none"}. Monthly EMI total: ₹${totalEmi}. Total outstanding: ₹${totalLoanBal}. Monthly income: ₹${income}.
-Task: In 2-3 sentences, assess debt burden and recommend the best repayment approach.`,
-
-        savings_rate: `${BRIEF}
-
-Data: ${CTX} Savings jars: ${jarList || "none set"}.
-Task: In 2-3 sentences, state the current savings rate percentage and give one specific tip to improve it.`,
+Task: State debt burden verdict in HEADLINE. Name the best repayment tactic in DETAIL.`,
 
         subscription_audit: `${BRIEF}
 
-Data: ${CTX}
+Data: ${CTX} Budget completion: ${budgetCompletion.toFixed(1)}%.
 Recurring/subscription expenses: ${transactions.filter((t) => t.type === "EXPENSE" && (t.isRecurring || /netflix|spotify|prime|gym|subscription|fee/i.test(t.description || ""))).slice(0, 15).map((t) => `₹${Number(t.amount).toFixed(0)} ${t.description || t.category}`).join(", ") || "none detected"}.
 ${MATH_WARNING}
-Task: In 2-3 sentences, summarize the subscription situation. If the user is EXCEEDING their budget (🔴), you MUST explicitly point this out and suggest immediately auditing/cutting these subscriptions to save money, even if the subscription amount seems small.`,
+Task: State subscription health verdict in HEADLINE. Call out the top subscription to review or cut in DETAIL.`,
     };
 
     return prompts[insightType] || prompts.spending_analysis;
@@ -126,7 +171,7 @@ export async function POST(request) {
                 model: MODEL,
                 prompt,
                 stream: true,
-                options: { temperature: 0.6, num_predict: 120 },
+                options: { temperature: 0.3, num_predict: 80 },
             }),
         });
 

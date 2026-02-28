@@ -395,37 +395,46 @@ export default function DashboardOverview() {
 
   return (
     <div className="min-h-screen">
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 px-6 py-10 md:px-10">
-        <div className="absolute -top-16 -right-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative flex items-start justify-between">
+      <div className="p-4 md:p-8 space-y-6">
+
+        {/* ── Top Bar ───────────────────────────────────────── */}
+        <div className="flex items-center justify-between">
           <div>
-            <p className="text-emerald-400 text-sm font-semibold tracking-widest uppercase mb-1">Investment Dashboard</p>
-            <h1 className="text-3xl md:text-4xl font-bold text-white mb-1">Your Wealth Overview</h1>
-            <p className="text-slate-400 text-sm">
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-800">
+              Your Wealth Overview
+            </h1>
+            <p className="text-sm text-slate-500">
               Live market prices for your portfolio
               {lastUpdated && (
-                <span className="ml-2 text-emerald-400">· updated {lastUpdated.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span>
+                <span className="ml-2 text-emerald-600">
+                  · updated{" "}
+                  {lastUpdated.toLocaleTimeString("en-IN", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
               )}
             </p>
           </div>
+
           <button
             onClick={handleRefresh}
             disabled={marketLoading || loading}
-            className="mt-1 flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${marketLoading ? "animate-spin" : ""}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${marketLoading ? "animate-spin" : ""}`}
+            />
             {marketLoading ? "Fetching..." : "Refresh"}
           </button>
         </div>
-      </div>
 
-      <div className="p-4 md:p-8">
-        {/* ── Stat cards ─────────────────────────────────────────────────── */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8 -mt-6">
+        {/* ── Stat Cards ───────────────────────────────────── */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {loading ? (
-            Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+            Array.from({ length: 4 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))
           ) : (
             <>
               <StatCard
@@ -436,6 +445,7 @@ export default function DashboardOverview() {
                 iconClass="bg-emerald-100 text-emerald-600"
                 valueClass="text-emerald-700"
               />
+
               <StatCard
                 title="Total Invested"
                 value={summary.totalInvested}
@@ -443,36 +453,82 @@ export default function DashboardOverview() {
                 icon={DollarSign}
                 iconClass="bg-blue-100 text-blue-600"
               />
+
               <Card className="border-0 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">Overall Returns</CardTitle>
-                  <div className={`p-1.5 rounded-lg ${summary.totalInvested <= summary.totalCurrentValue ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"}`}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-500">
+                    Overall Returns
+                  </CardTitle>
+                  <div
+                    className={`p-1.5 rounded-lg ${summary.totalInvested <= summary.totalCurrentValue
+                      ? "bg-emerald-100 text-emerald-600"
+                      : "bg-red-100 text-red-600"
+                      }`}
+                  >
                     <TrendingUp className="h-4 w-4" />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${summary.totalInvested <= summary.totalCurrentValue ? "text-emerald-600" : "text-red-600"}`}>
-                    {formatINR(Math.round(summary.totalCurrentValue - summary.totalInvested))}
+                  <div
+                    className={`text-2xl font-bold ${summary.totalInvested <= summary.totalCurrentValue
+                      ? "text-emerald-600"
+                      : "text-red-600"
+                      }`}
+                  >
+                    {formatINR(
+                      Math.round(
+                        summary.totalCurrentValue - summary.totalInvested
+                      )
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    {((summary.totalCurrentValue - summary.totalInvested) / (summary.totalInvested || 1) * 100).toFixed(1)}% all-time growth
+                    {(
+                      ((summary.totalCurrentValue -
+                        summary.totalInvested) /
+                        (summary.totalInvested || 1)) *
+                      100
+                    ).toFixed(1)}
+                    % all-time growth
                   </p>
                 </CardContent>
               </Card>
 
               <Card className="border-0 shadow-md hover:shadow-lg transition-shadow duration-300 overflow-hidden">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-slate-500">Day's Movement</CardTitle>
-                  <div className={`p-1.5 rounded-lg ${isPositiveDay ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"}`}>
-                    {isPositiveDay ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-500">
+                    Day's Movement
+                  </CardTitle>
+                  <div
+                    className={`p-1.5 rounded-lg ${isPositiveDay
+                      ? "bg-green-100 text-green-600"
+                      : "bg-red-100 text-red-600"
+                      }`}
+                  >
+                    {isPositiveDay ? (
+                      <ArrowUp className="h-4 w-4" />
+                    ) : (
+                      <ArrowDown className="h-4 w-4" />
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${isPositiveDay ? "text-green-600" : "text-red-600"}`}>
-                    {isPositiveDay ? "+" : ""}{formatINR(Math.round(summary.totalChangeTodayAmount))}
+                  <div
+                    className={`text-2xl font-bold ${isPositiveDay
+                      ? "text-green-600"
+                      : "text-red-600"
+                      }`}
+                  >
+                    {isPositiveDay ? "+" : ""}
+                    {formatINR(
+                      Math.round(summary.totalChangeTodayAmount)
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
-                    {isPositiveDay ? "▲" : "▼"} {Math.abs(summary.totalChangeTodayPercent).toFixed(2)}% market move today
+                    {isPositiveDay ? "▲" : "▼"}{" "}
+                    {Math.abs(
+                      summary.totalChangeTodayPercent
+                    ).toFixed(2)}
+                    % market move today
                   </p>
                 </CardContent>
               </Card>
@@ -480,104 +536,194 @@ export default function DashboardOverview() {
           )}
         </div>
 
-        {/* ── Empty state ─────────────────────────────────────────────────── */}
+        {/* ── Empty State ─────────────────────────────────── */}
         {!loading && investments.length === 0 && <EmptyState />}
 
-        {/* ── Main content ────────────────────────────────────────────────── */}
+        {/* ── Main Content ───────────────────────────────── */}
         {!loading && investments.length > 0 && (
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* Left: live investment rows */}
+
+            {/* Left Side */}
             <div className="lg:col-span-2 space-y-3">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-lg font-bold text-slate-800">Your Investments</h2>
+                <h2 className="text-lg font-bold text-slate-800">
+                  Your Investments
+                </h2>
+
                 {marketData && !marketLoading && (
                   <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium flex items-center gap-1">
                     <Wifi className="w-3 h-3" /> Live Prices Active
                   </span>
                 )}
+
                 {!marketData && !marketLoading && (
                   <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-500 font-medium flex items-center gap-1">
                     <WifiOff className="w-3 h-3" /> Offline / No live data
                   </span>
                 )}
               </div>
+
               {marketLoading && !marketData ? (
                 <div className="space-y-3">
-                  {Array.from({ length: investments.length || 3 }).map((_, i) => (
-                    <div key={i} className="h-20 rounded-xl bg-slate-100 animate-pulse" />
+                  {Array.from({
+                    length: investments.length || 3,
+                  }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-20 rounded-xl bg-slate-100 animate-pulse"
+                    />
                   ))}
                 </div>
               ) : (
-                enriched.map((inv) => <InvestmentRow key={inv.id} inv={inv} />)
+                enriched.map((inv) => (
+                  <InvestmentRow key={inv.id} inv={inv} />
+                ))
               )}
             </div>
 
-            {/* Right: Donut + recent activity */}
+            {/* Right Side */}
             <div className="space-y-6">
               <Card className="border-0 shadow-md">
                 <CardHeader>
-                  <CardTitle className="text-base">Asset Mix</CardTitle>
-                  <CardDescription className="text-xs">Portfolio diversification</CardDescription>
+                  <CardTitle className="text-base">
+                    Asset Mix
+                  </CardTitle>
+                  <CardDescription className="text-xs">
+                    Portfolio diversification
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="h-[260px] w-full">
+
+                <CardContent className="h-[300px] w-full pt-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie
                         data={assetMixData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={70}
-                        outerRadius={110}
-                        paddingAngle={3}
+                        innerRadius={85}
+                        outerRadius={125}
+                        paddingAngle={4}
                         dataKey="value"
                         nameKey="name"
-                        labelLine={false}
+                        cornerRadius={10}
+                        stroke="none"
+                        isAnimationActive={true}
+                        animationDuration={800}
                       >
                         {assetMixData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.color}
+                            style={{
+                              filter: "drop-shadow(0px 6px 12px rgba(0,0,0,0.08))",
+                            }}
+                          />
                         ))}
-                        <DonutCenterLabel viewBox={{ cx: 0, cy: 0 }} total={summary.totalCurrentValue} />
                       </Pie>
+
                       <Tooltip
-                        formatter={(value) => formatINR(value)}
-                        contentStyle={{ borderRadius: "10px", border: "none", boxShadow: "0 4px 20px rgba(0,0,0,0.1)" }}
+                        formatter={(value, name) => [
+                          formatINR(value),
+                          name,
+                        ]}
+                        contentStyle={{
+                          borderRadius: "14px",
+                          border: "none",
+                          boxShadow:
+                            "0 10px 30px rgba(0,0,0,0.12)",
+                          fontSize: "13px",
+                        }}
                       />
+
+                      {/* Center Label */}
+                      <text
+                        x="50%"
+                        y="50%"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                      >
+                        <tspan
+                          x="50%"
+                          dy="-6"
+                          className="text-sm fill-slate-400"
+                        >
+                          Total Value
+                        </tspan>
+                        <tspan
+                          x="50%"
+                          dy="20"
+                          className="text-xl font-bold fill-slate-800"
+                        >
+                          {formatINR(summary.totalCurrentValue)}
+                        </tspan>
+                      </text>
                     </PieChart>
                   </ResponsiveContainer>
                 </CardContent>
+
                 <div className="px-4 pb-4 flex flex-wrap gap-2">
                   {assetMixData.map((entry) => (
-                    <div key={entry.name} className="flex items-center gap-1.5 text-xs text-slate-600">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                    <div
+                      key={entry.name}
+                      className="flex items-center gap-1.5 text-xs text-slate-600"
+                    >
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{
+                          backgroundColor: entry.color,
+                        }}
+                      />
                       {entry.name}
                     </div>
                   ))}
                 </div>
               </Card>
 
-              {/* Gold price card if user has gold */}
-              {enriched.some((i) => i.type === "GOLD" && i.marketData?.pricePerGram) && (
-                <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50 to-yellow-50">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center gap-2">🥇 Live Gold Price</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {(() => {
-                      const g = enriched.find((i) => i.type === "GOLD")?.marketData;
-                      return (
-                        <>
-                          <p className="text-2xl font-bold text-amber-700">
-                            ₹{g.pricePerGram?.toLocaleString("en-IN", { maximumFractionDigits: 0 })}/g
-                          </p>
-                          <p className="text-sm text-amber-600 mt-0.5">
-                            ₹{g.pricePerOz?.toLocaleString("en-IN", { maximumFractionDigits: 0 })} per troy oz
-                          </p>
-                        </>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-              )}
+              {enriched.some(
+                (i) =>
+                  i.type === "GOLD" &&
+                  i.marketData?.pricePerGram
+              ) && (
+                  <Card className="border-0 shadow-md bg-gradient-to-br from-amber-50 to-yellow-50">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base">
+                        🥇 Live Gold Price
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {(() => {
+                        const g = enriched.find(
+                          (i) => i.type === "GOLD"
+                        )?.marketData;
+
+                        return (
+                          <>
+                            <p className="text-2xl font-bold text-amber-700">
+                              ₹
+                              {g.pricePerGram?.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 0,
+                                }
+                              )}
+                              /g
+                            </p>
+                            <p className="text-sm text-amber-600 mt-0.5">
+                              ₹
+                              {g.pricePerOz?.toLocaleString(
+                                "en-IN",
+                                {
+                                  maximumFractionDigits: 0,
+                                }
+                              )}{" "}
+                              per troy oz
+                            </p>
+                          </>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+                )}
             </div>
           </div>
         )}

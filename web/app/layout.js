@@ -3,7 +3,6 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import Header from "@/components/Header";
 import { Toaster } from "@/components/ui/sonner";
-import { CopilotKit } from "@copilotkit/react-core";
 import { ClerkProvider } from "@clerk/nextjs";
 import { LanguageProvider } from "@/context/LanguageContext";
 
@@ -29,9 +28,7 @@ export default function RootLayout({ children }) {
           <ClerkProvider>
             <LanguageProvider>
               <Header />
-              <CopilotKit publicApiKey="ck_pub_faec2cff9fb6283e3cdb6997413a4fbe">
-                <main className="min-h-screen">{children}</main>
-              </CopilotKit>
+              <main className="min-h-screen">{children}</main>
               <Toaster />
             </LanguageProvider>
           </ClerkProvider>

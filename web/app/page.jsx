@@ -74,7 +74,7 @@ const testimonials = [
     name: "Alexandra Chen",
     role: "Startup Founder",
     quote:
-      '"FinanCrest is the first app that truly consolidates my personal and business finances. The AI insights for budgeting are incredibly accurate and helpful."',
+      '"Credify is the first app that truly consolidates my personal and business finances. The AI insights for budgeting are incredibly accurate and helpful."',
     avatar: "https://placehold.co/100x100/E2E8F0/4A5568?text=AC",
   },
   {
@@ -88,7 +88,7 @@ const testimonials = [
     name: "Priya Sharma",
     role: "Software Engineer",
     quote:
-      '"The multi-currency support is essential for me as I work with international clients. FinanCrest handles conversions seamlessly. Highly recommended!"',
+      '"The multi-currency support is essential for me as I work with international clients. Credify handles conversions seamlessly. Highly recommended!"',
     avatar: "https://placehold.co/100x100/E2E8F0/4A5568?text=PS",
   },
 ];
@@ -122,7 +122,7 @@ export default function App() {
 
             <p className="mt-6 max-w-2xl mx-auto text-lg ">
               From smart budgeting and AI-powered analytics to loan management
-              and investment tracking, FinanCrest is the only platform you need
+              and investment tracking, Credify is the only platform you need
               to achieve financial clarity.
             </p>
             <div className="mt-8 flex justify-center gap-4">
@@ -261,7 +261,7 @@ export default function App() {
                 Trusted by Thousands of Smart Users
               </h2>
               <p className="mt-4 text-lg ">
-                See how FinanCrest is helping people everywhere achieve their
+                See how Credify is helping people everywhere achieve their
                 financial goals.
               </p>
             </div>
@@ -292,8 +292,8 @@ export default function App() {
         <footer className="">
           <div className="container mx-auto px-6 py-12 grid grid-cols-2 md:grid-cols-4 gap-8">
             <div>
-              <h3 className="font-semibold text-white mb-4">FinanCrest</h3>
-              <p className="text-sm">&copy; 2025. All rights reserved.</p>
+              <h3 className="font-semibold text-white mb-4">Credify</h3>
+              <p className="text-sm">&copy; 2026. All rights reserved.</p>
             </div>
             <div>
               <h4 className="font-semibold text-white mb-4">Product</h4>
