@@ -56,23 +56,24 @@ Start HEADLINE with a status emoji: 🟢 (healthy), 🟡 (needs attention), or �
     const CTX = `Income ₹${income} | Expenses ₹${expense} | Budget ${budget ? "₹" + Number(budget.amount).toFixed(0) : "not set"} | Total Account Balance ₹${totalBalance} | Top spend: ${topCategories || "none"}.`;
 
     // Perform math logic programmatically to prevent LLM hallucinations
-    const isOverBudget = budget && Number(expense) > Number(budget.amount);
-    const budgetCompletion = budget ? (Number(expense) / Number(budget.amount)) * 100 : 0;
+    // Use currentMonthExpenses (not 90-day total) to compare against the monthly budget
+    const isOverBudget = budget && currentMonthExpenses > Number(budget.amount);
+    const budgetCompletion = budget ? (currentMonthExpenses / Number(budget.amount)) * 100 : 0;
     const isBudgetCritical = budgetCompletion >= 90; // 90%+ is critical
     const isBudgetWarning = budgetCompletion >= 70 && budgetCompletion < 90; // 70-89% is warning
     const hasHighBalance = (Number(totalBalance) + Number(income)) > (Number(expense) * 1.5);
 
     let MATH_WARNING;
     if (isOverBudget) {
-        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. The user's expenses (₹${expense}) have EXCEEDED their budget (₹${Number(budget.amount).toFixed(0)}) by ${(budgetCompletion - 100).toFixed(1)}%. This is a critical situation requiring immediate action.`;
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. This month's spending (₹${currentMonthExpenses.toFixed(0)}) has EXCEEDED the monthly budget (₹${Number(budget.amount).toFixed(0)}) by ${(budgetCompletion - 100).toFixed(1)}%. This is a critical situation requiring immediate action.`;
     } else if (isBudgetCritical) {
-        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. The user's budget is at ${budgetCompletion.toFixed(1)}% completion. This is CRITICAL - they are dangerously close to exceeding their budget (₹${Number(budget.amount).toFixed(0)}). Recommend urgent spending cuts.`;
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🔴. This month's budget is at ${budgetCompletion.toFixed(1)}% used. This is CRITICAL - they are dangerously close to exceeding their budget (₹${Number(budget.amount).toFixed(0)}). Recommend urgent spending cuts.`;
     } else if (isBudgetWarning) {
-        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🟡. The user's budget is at ${budgetCompletion.toFixed(1)}% completion. This is a WARNING - they are approaching their budget limit (₹${Number(budget.amount).toFixed(0)}). Recommend monitoring spending closely.`;
+        MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🟡. This month's budget is at ${budgetCompletion.toFixed(1)}% used. This is a WARNING - they are approaching their budget limit (₹${Number(budget.amount).toFixed(0)}). Recommend monitoring spending closely.`;
     } else if (hasHighBalance && !budget) {
         MATH_WARNING = `CRITICAL INSTRUCTION: You MUST start with 🟢. The user's total balance + income easily covers their expenses. They are in excellent financial shape. Do NOT give a critical or yellow warning.`;
     } else {
-        MATH_WARNING = `CRITICAL INSTRUCTION: The user is within budget (${budgetCompletion.toFixed(1)}% used). Start with 🟢 or 🟡 based on their spending patterns and categories.`;
+        MATH_WARNING = `CRITICAL INSTRUCTION: The user is within budget (${budgetCompletion.toFixed(1)}% of monthly budget used). Start with 🟢 or 🟡 based on their spending patterns and categories.`;
     }
 
     const prompts = {
