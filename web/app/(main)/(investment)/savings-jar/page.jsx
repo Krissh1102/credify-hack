@@ -384,15 +384,7 @@ export default function SavingsJarsManager() {
   return (
     <div className="min-h-screen">
       {/* Hero banner */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 px-6 py-10 md:px-10 mb-6">
-        <div className="absolute -top-16 -right-16 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-48 h-48 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative">
-          <p className="text-emerald-400 text-sm font-semibold tracking-widest uppercase mb-1">Savings</p>
-          <h1 className="text-3xl md:text-4xl font-bold text-white mb-1">My Savings Jars 🫙</h1>
-          <p className="text-slate-400 text-sm">Set goals, track progress, and build your financial future.</p>
-        </div>
-      </div>
+
       <div className="max-w-7xl mx-auto p-4 space-y-8">
         <AnimatePresence>
           {isModalOpen && (

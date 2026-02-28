@@ -229,18 +229,32 @@ export default function DebtOverviewPage() {
             </p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="border-0 shadow-md">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Credit Score</CardTitle>
-            <Gauge className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Health Score
+            </CardTitle>
+            <Gauge className="h-4 w-4 text-slate-400" />
           </CardHeader>
+
           <CardContent>
-            <div
-              className={`text-2xl font-bold ${getScoreColor(profile.creditScore)}`}
-            >
+            <div className="text-3xl font-bold text-slate-900">
               {profile.creditScore}
             </div>
-            <p className="text-xs text-muted-foreground">
+
+            <div className="mt-2 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500"
+                style={{
+                  width: `${Math.min(
+                    (profile.creditScore / 800) * 100,
+                    100
+                  )}%`,
+                }}
+              />
+            </div>
+
+            <p className="text-xs text-slate-500 mt-2">
               Based on your profile
             </p>
           </CardContent>
@@ -265,31 +279,141 @@ export default function DebtOverviewPage() {
 
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-5">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 border-0 shadow-md">
           <CardHeader>
-            <CardTitle>Debt Composition</CardTitle>
-            <CardDescription>Distribution of your total debt</CardDescription>
+            <CardTitle className="text-lg font-semibold">
+              Debt Composition
+            </CardTitle>
+            <CardDescription>
+              Distribution of your total debt
+            </CardDescription>
           </CardHeader>
-          <CardContent className="h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={debtCompositionData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                >
-                  {debtCompositionData.map((entry, index) => (
-                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-                <Legend iconType="circle" />
-              </PieChart>
-            </ResponsiveContainer>
+
+          <CardContent className="pt-2 pb-6">
+            {debtCompositionData.length === 0 ? (
+              <p className="text-center text-muted-foreground py-6">
+                No debt data available
+              </p>
+            ) : (
+              <>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={debtCompositionData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={80}
+                        outerRadius={115}
+                        paddingAngle={4}
+                        dataKey="value"
+                        cornerRadius={10}
+                        stroke="none"
+                        isAnimationActive
+                        animationDuration={800}
+                        label={({ name, percent, x, y, textAnchor }) => {
+                          // Hide labels for very small slices (<5%)
+                          if (percent < 0.05) return null;
+
+                          return (
+                            <text
+                              x={x}
+                              y={y}
+                              fill="#475569"
+                              textAnchor={textAnchor}
+                              dominantBaseline="central"
+                              className="text-xs font-medium"
+                            >
+                              {name} ({(percent * 100).toFixed(0)}%)
+                            </text>
+                          );
+                        }}
+                        labelLine={false}
+                      >
+                        {debtCompositionData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS[index % COLORS.length]}
+                            style={{
+                              filter: "drop-shadow(0px 6px 14px rgba(0,0,0,0.08))",
+                            }}
+                          />
+                        ))}
+                      </Pie>
+
+                      <Tooltip
+                        formatter={(value, name) => [
+                          formatCurrency(value),
+                          name,
+                        ]}
+                        contentStyle={{
+                          borderRadius: "14px",
+                          border: "none",
+                          boxShadow:
+                            "0 10px 30px rgba(0,0,0,0.12)",
+                          fontSize: "13px",
+                        }}
+                      />
+
+                      {/* Center Total */}
+                      <text
+                        x="50%"
+                        y="50%"
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                      >
+                        <tspan
+                          x="50%"
+                          dy="-6"
+                          className="text-sm fill-slate-400"
+                        >
+                          Total Debt
+                        </tspan>
+                        <tspan
+                          x="50%"
+                          dy="20"
+                          className="text-lg font-bold fill-slate-800"
+                        >
+                          {formatCurrency(
+                            debtCompositionData.reduce(
+                              (acc, cur) => acc + cur.value,
+                              0
+                            )
+                          )}
+                        </tspan>
+                      </text>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Custom Legend with Percentage */}
+                <div className="mt-4 flex flex-wrap gap-4 justify-center text-sm">
+                  {debtCompositionData.map((entry, index) => {
+                    const total = debtCompositionData.reduce(
+                      (acc, cur) => acc + cur.value,
+                      0
+                    );
+                    const percent = ((entry.value / total) * 100).toFixed(0);
+
+                    return (
+                      <div
+                        key={entry.name}
+                        className="flex items-center gap-2 text-slate-600"
+                      >
+                        <span
+                          className="w-3 h-3 rounded-full"
+                          style={{
+                            backgroundColor:
+                              COLORS[index % COLORS.length],
+                          }}
+                        />
+                        {entry.name} ({percent}%)
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
         <Card className="lg:col-span-3">
