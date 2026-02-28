@@ -58,14 +58,6 @@ const Page = async ({ searchParams }) => {
         <DashboardOverview accounts={accounts} transactions={transactions || []} />
       </Suspense>
 
-      {/* AI Insights row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <AiInsightWidget title="Spending Analysis" insightType="spending_analysis" data={financialData} />
-        <AiInsightWidget title="Budget Prediction" insightType="budget_prediction" data={financialData} />
-        <AiInsightWidget title="Subscription Audit" insightType="subscription_audit" data={financialData} />
-        <AiInsightWidget title="Anomaly Detection" insightType="anomaly_detection" data={financialData} />
-      </div>
-
       {/* Accounts grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <CreateAccountDrawer>
@@ -148,6 +140,13 @@ const Page = async ({ searchParams }) => {
             />
           ))}
       </div>
+        {/* AI Insights row */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <AiInsightWidget title="Spending Analysis" insightType="spending_analysis" data={financialData} />
+          <AiInsightWidget title="Budget Prediction" insightType="budget_prediction" data={financialData} />
+          <AiInsightWidget title="Subscription Audit" insightType="subscription_audit" data={financialData} />
+          <AiInsightWidget title="Anomaly Detection" insightType="anomaly_detection" data={financialData} />
+        </div>
     </div>
   );
 };
