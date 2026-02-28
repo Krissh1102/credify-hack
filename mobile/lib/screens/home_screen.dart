@@ -1,5 +1,7 @@
 import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:mobile/main.dart'; // ✅ imports flutterLocalNotificationsPlugin
 import 'package:mobile/models/user_provider.dart';
 
 import 'package:mobile/screens/dashboard_screen.dart';
@@ -33,7 +35,6 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // ✅ Get Clerk user ID from the widget tree (NOT ClerkAuthService)
       final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
       UserNotifier().clear();
       UserNotifier().load(clerkUserId: clerkUserId);
@@ -81,23 +82,180 @@ class _HomeScreenState extends State<HomeScreen>
 }
 
 // ═══════════════════════════════════════════════════════════════
-// APP HEADER — theme-aware colors
+// APP HEADER
 // ═══════════════════════════════════════════════════════════════
 class _AppHeader extends StatelessWidget {
   const _AppHeader();
+
+  // ✅ Send a real local notification
+  Future<void> _sendLocalNotification() async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          'credify_channel',
+          'Credify Alerts',
+          channelDescription: 'Notifications for your Credify finance app',
+          importance: Importance.high,
+          priority: Priority.high,
+          icon: '@mipmap/ic_launcher',
+        );
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      id: 0,
+      title: '💰 Credify Alert',
+      body: 'Your savings goal is on track! Keep it up.',
+      notificationDetails: details,
+    );
+  }
+
+  void _showNotificationPopup(BuildContext context) {
+    _sendLocalNotification();
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          constraints: BoxConstraints(maxWidth: R.p(320)),
+          decoration: BoxDecoration(
+            color: T.surface,
+            borderRadius: BorderRadius.circular(R.r(20)),
+            border: Border.all(color: T.border, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 20,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: EdgeInsets.all(R.p(20)),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [T.accent, T.accentSoft],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(R.r(20)),
+                    topRight: Radius.circular(R.r(20)),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.notifications_active_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    SizedBox(width: R.p(12)),
+                    Text(
+                      'Notifications',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: R.fs(18),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Notification items
+              Padding(
+                padding: EdgeInsets.all(R.p(16)),
+                child: Column(
+                  children: [
+                    _NotificationItem(
+                      icon: Icons.savings_rounded,
+                      title: 'Savings Goal Reached!',
+                      message:
+                          'Congratulations! You\'ve reached your monthly savings goal.',
+                      time: '2 hours ago',
+                      isUnread: true,
+                    ),
+                    SizedBox(height: R.p(12)),
+                    _NotificationItem(
+                      icon: Icons.credit_card_rounded,
+                      title: 'Payment Due Soon',
+                      message: 'Your credit card payment is due in 3 days.',
+                      time: '1 day ago',
+                      isUnread: true,
+                    ),
+                    SizedBox(height: R.p(12)),
+                    _NotificationItem(
+                      icon: Icons.auto_graph_rounded,
+                      title: 'New Learning Module',
+                      message:
+                          'Check out our new guide on investment strategies.',
+                      time: '3 days ago',
+                      isUnread: false,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Close button
+              Padding(
+                padding: EdgeInsets.fromLTRB(R.p(16), 0, R.p(16), R.p(16)),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: T.accent,
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(vertical: R.p(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(R.r(12)),
+                      ),
+                    ),
+                    child: Text(
+                      'Close',
+                      style: TextStyle(
+                        fontSize: R.fs(14),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final av = R.p(44).clamp(38.0, 52.0);
 
+    // ✅ Merge UserNotifier + ThemeProvider so header rebuilds on BOTH changes
     return ListenableBuilder(
-      listenable: UserNotifier(),
+      listenable: Listenable.merge([UserNotifier(), ThemeProvider.of(context)]),
       builder: (context, _) {
+        // ✅ Re-init T inside builder so T.textPrimary is always current theme
+        final themeNotifier = ThemeProvider.of(context);
+        T.init(themeNotifier.isDark);
+
         final un = UserNotifier();
         final user = un.user;
         final initial = user?.initial ?? '?';
         final greeting = un.greeting;
-        // ✅ Show first name only (fetched from Supabase users.name)
         final displayName = user?.firstName ?? '—';
         final imageUrl = user?.imageUrl;
 
@@ -141,17 +299,15 @@ class _AppHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Greeting — uses T.textSecondary (theme-aware)
                   Text(
                     greeting,
                     style: TextStyle(
-                      color: T.textSecondary,
+                      color: T.textSecondary, // ✅ theme-aware
                       fontSize: R.fs(11),
                       letterSpacing: 0.3,
                     ),
                   ),
                   SizedBox(height: R.p(2)),
-                  // Name — uses T.textPrimary (theme-aware)
                   un.loading && user == null
                       ? _ShimmerText(width: R.p(140), height: R.fs(15))
                       : Text(
@@ -160,8 +316,7 @@ class _AppHeader extends StatelessWidget {
                             fontSize: R.fs(15),
                             fontWeight: FontWeight.w700,
                             letterSpacing: -0.4,
-                            // ✅ T.textPrimary switches between
-                            // white (dark mode) and dark (light mode)
+                            // ✅ T.textPrimary now refreshes correctly on theme toggle
                             color: T.textPrimary,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -172,10 +327,104 @@ class _AppHeader extends StatelessWidget {
 
             const _ThemeToggle(),
             SizedBox(width: R.p(8)),
-            _NIcon(icon: Icons.notifications_outlined, badge: true),
+            _NIcon(
+              icon: Icons.notifications_outlined,
+              badge: true,
+              onTap: () => _showNotificationPopup(context),
+            ),
           ],
         );
       },
+    );
+  }
+}
+
+// ─── Notification Item Widget ─────────────────────────────────
+class _NotificationItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+  final String time;
+  final bool isUnread;
+
+  const _NotificationItem({
+    required this.icon,
+    required this.title,
+    required this.message,
+    required this.time,
+    this.isUnread = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.all(R.p(12)),
+      decoration: BoxDecoration(
+        color: isUnread ? T.accent.withOpacity(0.05) : T.elevated,
+        borderRadius: BorderRadius.circular(R.r(12)),
+        border: Border.all(
+          color: isUnread ? T.accent.withOpacity(0.2) : T.border,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: EdgeInsets.all(R.p(8)),
+            decoration: BoxDecoration(
+              color: T.accent.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(R.r(10)),
+            ),
+            child: Icon(icon, color: T.accent, size: R.fs(20)),
+          ),
+          SizedBox(width: R.p(12)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: TextStyle(
+                          color: T.textPrimary,
+                          fontSize: R.fs(13),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (isUnread)
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: T.accent,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                  ],
+                ),
+                SizedBox(height: R.p(4)),
+                Text(
+                  message,
+                  style: TextStyle(
+                    color: T.textSecondary,
+                    fontSize: R.fs(12),
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(height: R.p(4)),
+                Text(
+                  time,
+                  style: TextStyle(color: T.textMuted, fontSize: R.fs(10)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -340,7 +589,8 @@ class _ThemeToggle extends StatelessWidget {
 class _NIcon extends StatelessWidget {
   final IconData icon;
   final bool badge;
-  const _NIcon({required this.icon, this.badge = false});
+  final VoidCallback? onTap;
+  const _NIcon({required this.icon, this.badge = false, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -353,7 +603,7 @@ class _NIcon extends StatelessWidget {
           borderRadius: BorderRadius.circular(R.r(12)),
           child: InkWell(
             borderRadius: BorderRadius.circular(R.r(12)),
-            onTap: () {},
+            onTap: onTap,
             child: Container(
               width: s,
               height: s,

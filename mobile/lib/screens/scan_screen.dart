@@ -3,10 +3,16 @@ import 'dart:io';
 import 'package:clerk_flutter/clerk_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile/models/user_provider.dart';
 import 'package:mobile/provider/transaction_provider.dart';
+
 import 'package:mobile/services/camera_service.dart';
+import 'package:mobile/services/gemini_service.dart';
+import 'package:mobile/services/gemini_voice.dart';
+import 'package:mobile/services/voice_recorder.dart';
 import 'package:mobile/theme/theme.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 
 class ScanScreen extends StatefulWidget {
   const ScanScreen({super.key});
@@ -21,10 +27,12 @@ class _ScanScreenState extends State<ScanScreen>
   late Animation<double> _fade;
   late Animation<Offset> _slide;
 
+  static const _uuid = Uuid();
+
   // Form state
   String _selectedType = '';
-  String _selectedAccount = "Ved's Main Account";
-  String _selectedAccountId = "b2a55e13-3ca1-4dd4-acfc-29347b...";
+  String _selectedAccount = '';
+  String _selectedAccountId = '';
   String _selectedCategory = '';
   bool _recurring = false;
   bool _typeDropOpen = false;
@@ -33,19 +41,13 @@ class _ScanScreenState extends State<ScanScreen>
   File? _scannedReceipt;
 
   // Transaction list state
-  String _filterType = 'ALL'; // ALL | INCOME | EXPENSE
+  String _filterType = 'ALL';
   bool _showAll = false;
   static const int _previewCount = 5;
 
   final _amountCtrl = TextEditingController();
   final _dateCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
-
-  static const _accounts = [
-    ("Ved's Main Account", 'Savings', "b2a55e13-3ca1-4dd4-acfc-29347b..."),
-    ('Business Account', 'Current', "0d5ad69c-9a95-4aca-af7d-bb57e..."),
-    ('Joint Account', 'Savings', "1a27f949-8ab8-4469-9b28-e6003..."),
-  ];
 
   static const _types = ['Income', 'Expense', 'Transfer', 'Investment'];
   static const _categories = [
@@ -81,6 +83,27 @@ class _ScanScreenState extends State<ScanScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final userId = ClerkAuth.of(context).user?.id ?? '';
       context.read<TransactionProvider>().loadTransactions(clerkUserId: userId);
+
+      context.read<UserNotifier>().load(clerkUserId: userId);
+
+      // ✅ Set default account if available
+      _setDefaultAccount();
+    });
+  }
+
+  // ✅ NEW METHOD: Set default account from UserProvider
+  void _setDefaultAccount() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final userNotifier = context.watch<UserNotifier>();
+      final defaultAcc = userNotifier.defaultAccount;
+
+      if (defaultAcc != null && _selectedAccountId.isEmpty) {
+        setState(() {
+          _selectedAccount = defaultAcc.name;
+          _selectedAccountId = defaultAcc.id;
+        });
+      }
     });
   }
 
@@ -94,35 +117,314 @@ class _ScanScreenState extends State<ScanScreen>
   }
 
   void _closeAllDropdowns() => setState(() {
-        _typeDropOpen = false;
-        _accountDropOpen = false;
-        _categoryDropOpen = false;
-      });
+    _typeDropOpen = false;
+    _accountDropOpen = false;
+    _categoryDropOpen = false;
+  });
 
   void _switchFilter(String type) => setState(() {
-        _filterType = type;
-        _showAll = false;
-      });
+    _filterType = type;
+    _showAll = false;
+  });
 
   Future<void> _scanReceipt() async {
     HapticFeedback.lightImpact();
     final result = await CameraService.instance.showPickerSheet(context);
     if (!result.success || !mounted) return;
+
     HapticFeedback.lightImpact();
     setState(() => _scannedReceipt = result.image);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Receipt captured! AI analysis coming soon…'),
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: const [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text('Analyzing receipt with Gemini AI…'),
+          ],
+        ),
         backgroundColor: T.accent,
         behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 15),
         margin: EdgeInsets.all(R.p(16)),
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(R.r(12))),
-      ));
+          borderRadius: BorderRadius.circular(R.r(12)),
+        ),
+      ),
+    );
+
+    final receiptData = await GeminiService.instance.analyzeReceipt(
+      result.image!,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (!receiptData.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            receiptData.error?.contains('Not a receipt') == true
+                ? 'Image doesn\'t look like a receipt. Fill manually.'
+                : 'Could not read receipt: ${receiptData.error}',
+          ),
+          backgroundColor: T.red,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(R.p(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12)),
+          ),
+        ),
+      );
+      return;
+    }
+
+    _applyExtractedData(
+      amount: receiptData.amount,
+      category: receiptData.category,
+      description: receiptData.description,
+      date: receiptData.date,
+      type: receiptData.type,
+    );
+
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '✅ Receipt scanned! ₹${receiptData.amount?.toStringAsFixed(0)} · ${receiptData.category}',
+        ),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+        margin: EdgeInsets.all(R.p(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.r(12)),
+        ),
+      ),
+    );
+  }
+
+  void _applyExtractedData({
+    double? amount,
+    String? category,
+    String? description,
+    String? date,
+    String? type,
+  }) {
+    setState(() {
+      if (amount != null) {
+        _amountCtrl.text = amount.toStringAsFixed(2);
+      }
+      if (category != null && category.isNotEmpty) {
+        _selectedCategory = category;
+      }
+      if (description != null && description.isNotEmpty) {
+        _descCtrl.text = description;
+      }
+      if (date != null) {
+        try {
+          final d = DateTime.parse(date);
+          _dateCtrl.text =
+              '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+        } catch (_) {}
+      }
+      if (type != null) {
+        const typeMap = {
+          'EXPENSE': 'Expense',
+          'INCOME': 'Income',
+          'TRANSFER': 'Transfer',
+          'INVESTMENT': 'Investment',
+        };
+        _selectedType = typeMap[type] ?? 'Expense';
+      }
+    });
+  }
+
+  Future<void> _handleVoice() async {
+    HapticFeedback.lightImpact();
+
+    final audioFile = await showVoiceRecorderSheet(context);
+
+    if (audioFile == null || !mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: const [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2,
+              ),
+            ),
+            SizedBox(width: 12),
+            Text('Analyzing voice with Gemini AI…'),
+          ],
+        ),
+        backgroundColor: T.accent,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 15),
+        margin: EdgeInsets.all(R.p(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.r(12)),
+        ),
+      ),
+    );
+
+    final voiceData = await GeminiVoiceService.instance.analyzeVoice(audioFile);
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (!voiceData.success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            voiceData.error ?? 'Could not understand. Please try again.',
+          ),
+          backgroundColor: T.red,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(R.p(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12)),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (voiceData.transcription != null && mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: T.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            children: [
+              Icon(Icons.mic_rounded, color: T.accent, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'I heard…',
+                style: TextStyle(
+                  color: T.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: T.elevated,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: T.border),
+                ),
+                child: Text(
+                  '"${voiceData.transcription}"',
+                  style: TextStyle(
+                    color: T.textSecondary,
+                    fontSize: 14,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _ConfirmRow(
+                icon: Icons.currency_rupee_rounded,
+                label: 'Amount',
+                value: '₹${voiceData.amount?.toStringAsFixed(0)}',
+              ),
+              _ConfirmRow(
+                icon: Icons.category_rounded,
+                label: 'Category',
+                value: voiceData.category ?? '—',
+              ),
+              _ConfirmRow(
+                icon: Icons.arrow_circle_down_rounded,
+                label: 'Type',
+                value: voiceData.type ?? 'EXPENSE',
+              ),
+              _ConfirmRow(
+                icon: Icons.notes_rounded,
+                label: 'Note',
+                value: voiceData.description ?? '—',
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                'Re-record',
+                style: TextStyle(color: T.textSecondary),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: T.accent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Use This'),
+            ),
+          ],
+        ),
+      ).then((confirmed) {
+        if (confirmed == true && mounted) {
+          _applyExtractedData(
+            amount: voiceData.amount,
+            category: voiceData.category,
+            description: voiceData.description,
+            date: voiceData.date,
+            type: voiceData.type,
+          );
+
+          HapticFeedback.mediumImpact();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '🎤 Voice captured! ₹${voiceData.amount?.toStringAsFixed(0)} · ${voiceData.category}',
+              ),
+              backgroundColor: Colors.green.shade700,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 3),
+              margin: EdgeInsets.all(R.p(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(R.r(12)),
+              ),
+            ),
+          );
+        }
+      });
     }
   }
 
   Future<void> _handleCreate() async {
+    // ✅ VALIDATE ACCOUNT FIRST
+    if (_selectedAccountId.isEmpty) {
+      _showError('Please select an account');
+      return;
+    }
     if (_selectedType.isEmpty) {
       _showError('Please select a transaction type');
       return;
@@ -144,6 +446,31 @@ class _ScanScreenState extends State<ScanScreen>
     HapticFeedback.mediumImpact();
 
     final clerkUserId = ClerkAuth.of(context).user?.id ?? '';
+
+    final dateParts = _dateCtrl.text.split('/');
+    DateTime parsedDate;
+    try {
+      parsedDate = DateTime(
+        int.parse(dateParts[2]),
+        int.parse(dateParts[1]),
+        int.parse(dateParts[0]),
+      );
+    } catch (e) {
+      _showError('Invalid date format');
+      return;
+    }
+
+    print('🔍 Creating transaction:');
+    print('  Transaction ID: ${_uuid.v4()}');
+    print('  User: $clerkUserId');
+    print('  Account ID: $_selectedAccountId'); // ✅ Now using real account ID
+    print('  Type: ${_selectedType.toUpperCase()}');
+    print('  Amount: $amount');
+    print('  Category: $_selectedCategory');
+    print('  Date (ISO): ${parsedDate.toIso8601String()}');
+    print('  Description: ${_descCtrl.text}');
+    print('  Recurring: $_recurring');
+
     final provider = context.read<TransactionProvider>();
 
     final success = await provider.createTransaction(
@@ -152,13 +479,16 @@ class _ScanScreenState extends State<ScanScreen>
       type: _selectedType.toUpperCase(),
       amount: amount,
       category: _selectedCategory,
-      date: _dateCtrl.text,
+      date: parsedDate.toIso8601String(),
       description: _descCtrl.text,
       isRecurring: _recurring,
       recurringInterval: _recurring ? 'MONTHLY' : null,
-      nextRecurringDate:
-          _recurring ? DateTime.now().add(const Duration(days: 30)) : null,
+      nextRecurringDate: _recurring
+          ? DateTime.now().add(const Duration(days: 30))
+          : null,
     );
+
+    print('✅ Transaction creation result: $success');
 
     if (success && mounted) {
       _amountCtrl.clear();
@@ -172,28 +502,34 @@ class _ScanScreenState extends State<ScanScreen>
         _dateCtrl.text =
             '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: const Text('Transaction created successfully!'),
-        backgroundColor: Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-        margin: EdgeInsets.all(R.p(16)),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(R.r(12))),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Transaction created successfully!'),
+          backgroundColor: Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(R.p(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(R.r(12)),
+          ),
+        ),
+      );
     } else if (mounted) {
       _showError('Failed to create transaction. Please try again.');
     }
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: T.red,
-      behavior: SnackBarBehavior.floating,
-      margin: EdgeInsets.all(R.p(16)),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(R.r(12))),
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: T.red,
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.all(R.p(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(R.r(12)),
+        ),
+      ),
+    );
   }
 
   List<Map<String, dynamic>> _getFiltered(TransactionProvider p) {
@@ -213,14 +549,16 @@ class _ScanScreenState extends State<ScanScreen>
     final notifier = ThemeProvider.of(context);
     T.init(notifier.isDark);
 
+    final userNotifier = context.watch<UserNotifier>();
+    final accounts = userNotifier.accounts;
+
     return Consumer<TransactionProvider>(
       builder: (context, provider, _) {
         final allFiltered = _getFiltered(provider);
         final visible = _showAll
             ? allFiltered
             : allFiltered.take(_previewCount).toList();
-        final hasMore =
-            !_showAll && allFiltered.length > _previewCount;
+        final hasMore = !_showAll && allFiltered.length > _previewCount;
 
         return FadeTransition(
           opacity: _fade,
@@ -239,11 +577,16 @@ class _ScanScreenState extends State<ScanScreen>
                 color: T.accent,
                 child: CustomScrollView(
                   physics: const BouncingScrollPhysics(
-                      parent: AlwaysScrollableScrollPhysics()),
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
                   slivers: [
                     SliverPadding(
                       padding: EdgeInsets.fromLTRB(
-                          R.p(20), R.p(10), R.p(20), R.p(32)),
+                        R.p(20),
+                        R.p(10),
+                        R.p(20),
+                        R.p(32),
+                      ),
                       sliver: SliverList(
                         delegate: SliverChildListDelegate([
                           // ── Account Selector ──────────────────────
@@ -261,9 +604,12 @@ class _ScanScreenState extends State<ScanScreen>
                                   ),
                                 ),
                                 SizedBox(height: R.p(10)),
+                                // ✅ DYNAMIC ACCOUNT SELECTOR
                                 _AccountSelector(
                                   selected: _selectedAccount,
-                                  accounts: _accounts,
+                                  accounts: accounts
+                                      .map((a) => (a.name, a.type, a.id))
+                                      .toList(),
                                   isOpen: _accountDropOpen,
                                   onToggle: () {
                                     FocusScope.of(context).unfocus();
@@ -327,36 +673,41 @@ class _ScanScreenState extends State<ScanScreen>
                                   icon: Icons.mic_rounded,
                                   label: 'Add using Voice',
                                   gradient: [T.accentSoft, T.accent],
-                                  onTap: () {},
+                                  onTap: _handleVoice,
                                 ),
                                 if (_scannedReceipt != null) ...[
                                   SizedBox(height: R.p(12)),
                                   ClipRRect(
-                                    borderRadius:
-                                        BorderRadius.circular(R.r(14)),
+                                    borderRadius: BorderRadius.circular(
+                                      R.r(14),
+                                    ),
                                     child: Stack(
                                       children: [
-                                        Image.file(_scannedReceipt!,
-                                            width: double.infinity,
-                                            height: R.p(160),
-                                            fit: BoxFit.cover),
+                                        Image.file(
+                                          _scannedReceipt!,
+                                          width: double.infinity,
+                                          height: R.p(160),
+                                          fit: BoxFit.cover,
+                                        ),
                                         Positioned(
                                           top: 8,
                                           right: 8,
                                           child: GestureDetector(
                                             onTap: () => setState(
-                                                () => _scannedReceipt = null),
+                                              () => _scannedReceipt = null,
+                                            ),
                                             child: Container(
-                                              padding:
-                                                  const EdgeInsets.all(4),
+                                              padding: const EdgeInsets.all(4),
                                               decoration: BoxDecoration(
-                                                  color: Colors.black54,
-                                                  borderRadius:
-                                                      BorderRadius.circular(
-                                                          20)),
-                                              child: const Icon(Icons.close,
-                                                  color: Colors.white,
-                                                  size: 16),
+                                                color: Colors.black54,
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                              ),
+                                              child: const Icon(
+                                                Icons.close,
+                                                color: Colors.white,
+                                                size: 16,
+                                              ),
                                             ),
                                           ),
                                         ),
@@ -406,14 +757,18 @@ class _ScanScreenState extends State<ScanScreen>
                                           _TField(
                                             controller: _amountCtrl,
                                             hint: '₹ 0.00',
-                                            keyboardType: const TextInputType
-                                                .numberWithOptions(
-                                                decimal: true),
-                                            prefix: Text('₹',
-                                                style: TextStyle(
-                                                    color: T.accent,
-                                                    fontWeight: FontWeight.w700,
-                                                    fontSize: R.fs(14))),
+                                            keyboardType:
+                                                const TextInputType.numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                            prefix: Text(
+                                              '₹',
+                                              style: TextStyle(
+                                                color: T.accent,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: R.fs(14),
+                                              ),
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -427,9 +782,10 @@ class _ScanScreenState extends State<ScanScreen>
                                           _FieldLabel('Account'),
                                           SizedBox(height: R.p(8)),
                                           _ReadOnlyField(
-                                              value: _selectedAccount
-                                                  .split(' ')
-                                                  .first),
+                                            value: _selectedAccount
+                                                .split(' ')
+                                                .first,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -478,9 +834,11 @@ class _ScanScreenState extends State<ScanScreen>
                                   controller: _dateCtrl,
                                   hint: 'DD/MM/YYYY',
                                   keyboardType: TextInputType.datetime,
-                                  suffix: Icon(Icons.calendar_today_rounded,
-                                      color: T.textSecondary,
-                                      size: R.fs(16)),
+                                  suffix: Icon(
+                                    Icons.calendar_today_rounded,
+                                    color: T.textSecondary,
+                                    size: R.fs(16),
+                                  ),
                                   onTap: () async {
                                     FocusScope.of(context).unfocus();
                                     _closeAllDropdowns();
@@ -492,8 +850,9 @@ class _ScanScreenState extends State<ScanScreen>
                                       builder: (ctx, child) => Theme(
                                         data: Theme.of(ctx).copyWith(
                                           colorScheme: ColorScheme.dark(
-                                              primary: T.accent,
-                                              surface: T.surface),
+                                            primary: T.accent,
+                                            surface: T.surface,
+                                          ),
                                         ),
                                         child: child!,
                                       ),
@@ -562,8 +921,7 @@ class _ScanScreenState extends State<ScanScreen>
 
                           SizedBox(height: R.p(24)),
 
-                          // ── Transaction History ──────────────────
-                          // Header row
+                          // ── Transaction History (rest of code remains the same) ──
                           Row(
                             children: [
                               Text(
@@ -597,12 +955,10 @@ class _ScanScreenState extends State<ScanScreen>
 
                           SizedBox(height: R.p(12)),
 
-                          // Filter tab switcher
                           Container(
                             decoration: BoxDecoration(
                               color: T.surface,
-                              borderRadius:
-                                  BorderRadius.circular(R.r(12)),
+                              borderRadius: BorderRadius.circular(R.r(12)),
                               border: Border.all(color: T.border, width: 1),
                             ),
                             padding: EdgeInsets.all(R.p(4)),
@@ -618,8 +974,7 @@ class _ScanScreenState extends State<ScanScreen>
                                 SizedBox(width: R.p(4)),
                                 _TabItem(
                                   label: 'Income',
-                                  count:
-                                      provider.incomeTransactions.length,
+                                  count: provider.incomeTransactions.length,
                                   active: _filterType == 'INCOME',
                                   onTap: () => _switchFilter('INCOME'),
                                   color: T.green,
@@ -627,8 +982,7 @@ class _ScanScreenState extends State<ScanScreen>
                                 SizedBox(width: R.p(4)),
                                 _TabItem(
                                   label: 'Expense',
-                                  count:
-                                      provider.expenseTransactions.length,
+                                  count: provider.expenseTransactions.length,
                                   active: _filterType == 'EXPENSE',
                                   onTap: () => _switchFilter('EXPENSE'),
                                   color: T.red,
@@ -639,13 +993,11 @@ class _ScanScreenState extends State<ScanScreen>
 
                           SizedBox(height: R.p(10)),
 
-                          // Transaction list card
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 320),
                             decoration: BoxDecoration(
                               color: T.surface,
-                              borderRadius:
-                                  BorderRadius.circular(R.r(20)),
+                              borderRadius: BorderRadius.circular(R.r(20)),
                               border: Border.all(color: T.border, width: 1),
                               boxShadow: [
                                 BoxShadow(
@@ -658,119 +1010,113 @@ class _ScanScreenState extends State<ScanScreen>
                             child: provider.isLoading && allFiltered.isEmpty
                                 ? _buildShimmer()
                                 : allFiltered.isEmpty
-                                    ? _buildEmpty()
-                                    : Column(
-                                        children: [
-                                          ..._buildTxnList(visible),
+                                ? _buildEmpty()
+                                : Column(
+                                    children: [
+                                      ..._buildTxnList(visible),
 
-                                          // "See all N" footer
-                                          if (hasMore) ...[
-                                            Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                  horizontal: R.p(16)),
-                                              child: Divider(
-                                                  color: T.border
-                                                      .withOpacity(0.6),
-                                                  height: 1),
+                                      if (hasMore) ...[
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: R.p(16),
+                                          ),
+                                          child: Divider(
+                                            color: T.border.withOpacity(0.6),
+                                            height: 1,
+                                          ),
+                                        ),
+                                        Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.vertical(
+                                              bottom: Radius.circular(R.r(20)),
                                             ),
-                                            Material(
-                                              color: Colors.transparent,
-                                              child: InkWell(
-                                                borderRadius:
-                                                    BorderRadius.vertical(
-                                                  bottom: Radius.circular(
-                                                      R.r(20)),
-                                                ),
-                                                onTap: () => setState(
-                                                    () => _showAll = true),
-                                                child: Padding(
-                                                  padding: EdgeInsets
-                                                      .symmetric(
-                                                          vertical: R.p(14)),
-                                                  child: Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Text(
-                                                        'See all ${allFiltered.length} transactions',
-                                                        style: TextStyle(
-                                                          color: T.accent,
-                                                          fontSize: R.fs(13),
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                      SizedBox(width: R.p(4)),
-                                                      Icon(
-                                                        Icons
-                                                            .keyboard_arrow_down_rounded,
-                                                        color: T.accent,
-                                                        size: R.fs(16),
-                                                      ),
-                                                    ],
+                                            onTap: () =>
+                                                setState(() => _showAll = true),
+                                            child: Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: R.p(14),
+                                              ),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  Text(
+                                                    'See all ${allFiltered.length} transactions',
+                                                    style: TextStyle(
+                                                      color: T.accent,
+                                                      fontSize: R.fs(13),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
                                                   ),
-                                                ),
+                                                  SizedBox(width: R.p(4)),
+                                                  Icon(
+                                                    Icons
+                                                        .keyboard_arrow_down_rounded,
+                                                    color: T.accent,
+                                                    size: R.fs(16),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                          ],
+                                          ),
+                                        ),
+                                      ],
 
-                                          // "Show less" footer
-                                          if (_showAll &&
-                                              allFiltered.length >
-                                                  _previewCount) ...[
-                                            Padding(
-                                              padding: EdgeInsets.symmetric(
-                                                  horizontal: R.p(16)),
-                                              child: Divider(
-                                                  color: T.border
-                                                      .withOpacity(0.6),
-                                                  height: 1),
+                                      if (_showAll &&
+                                          allFiltered.length >
+                                              _previewCount) ...[
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: R.p(16),
+                                          ),
+                                          child: Divider(
+                                            color: T.border.withOpacity(0.6),
+                                            height: 1,
+                                          ),
+                                        ),
+                                        Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.vertical(
+                                              bottom: Radius.circular(R.r(20)),
                                             ),
-                                            Material(
-                                              color: Colors.transparent,
-                                              child: InkWell(
-                                                borderRadius:
-                                                    BorderRadius.vertical(
-                                                  bottom: Radius.circular(
-                                                      R.r(20)),
-                                                ),
-                                                onTap: () => setState(
-                                                    () => _showAll = false),
-                                                child: Padding(
-                                                  padding: EdgeInsets
-                                                      .symmetric(
-                                                          vertical: R.p(14)),
-                                                  child: Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment
-                                                            .center,
-                                                    children: [
-                                                      Text(
-                                                        'Show less',
-                                                        style: TextStyle(
-                                                          color:
-                                                              T.textSecondary,
-                                                          fontSize: R.fs(13),
-                                                          fontWeight:
-                                                              FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                      SizedBox(width: R.p(4)),
-                                                      Icon(
-                                                        Icons
-                                                            .keyboard_arrow_up_rounded,
-                                                        color: T.textSecondary,
-                                                        size: R.fs(16),
-                                                      ),
-                                                    ],
+                                            onTap: () => setState(
+                                              () => _showAll = false,
+                                            ),
+                                            child: Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                vertical: R.p(14),
+                                              ),
+                                              child: Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  Text(
+                                                    'Show less',
+                                                    style: TextStyle(
+                                                      color: T.textSecondary,
+                                                      fontSize: R.fs(13),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
                                                   ),
-                                                ),
+                                                  SizedBox(width: R.p(4)),
+                                                  Icon(
+                                                    Icons
+                                                        .keyboard_arrow_up_rounded,
+                                                    color: T.textSecondary,
+                                                    size: R.fs(16),
+                                                  ),
+                                                ],
                                               ),
                                             ),
-                                          ],
-                                        ],
-                                      ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                           ),
 
                           SizedBox(height: R.p(8)),
@@ -787,7 +1133,7 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
-  // ── Shimmer placeholder ───────────────────────────────────────
+  // Rest of the methods remain exactly the same
   Widget _buildShimmer() {
     return Padding(
       padding: EdgeInsets.all(R.p(20)),
@@ -820,13 +1166,12 @@ class _ScanScreenState extends State<ScanScreen>
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────
   Widget _buildEmpty() {
     final label = _filterType == 'INCOME'
         ? 'No income transactions'
         : _filterType == 'EXPENSE'
-            ? 'No expense transactions'
-            : 'No transactions yet';
+        ? 'No expense transactions'
+        : 'No transactions yet';
     return Padding(
       padding: EdgeInsets.symmetric(vertical: R.p(32)),
       child: Center(
@@ -836,22 +1181,22 @@ class _ScanScreenState extends State<ScanScreen>
               _filterType == 'INCOME'
                   ? Icons.account_balance_outlined
                   : _filterType == 'EXPENSE'
-                      ? Icons.receipt_long_outlined
-                      : Icons.inbox_outlined,
+                  ? Icons.receipt_long_outlined
+                  : Icons.inbox_outlined,
               color: T.textMuted,
               size: R.fs(32),
             ),
             SizedBox(height: R.p(10)),
-            Text(label,
-                style:
-                    TextStyle(color: T.textMuted, fontSize: R.fs(13))),
+            Text(
+              label,
+              style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // ── Transaction rows ──────────────────────────────────────────
   List<Widget> _buildTxnList(List<Map<String, dynamic>> txns) {
     return List.generate(txns.length, (i) {
       final t = txns[i];
@@ -864,7 +1209,6 @@ class _ScanScreenState extends State<ScanScreen>
       final dateRaw = t['date'] as String? ?? '';
       final isRecurring = t['isRecurring'] as bool? ?? false;
 
-      // Format date nicely
       String dateLabel = dateRaw;
       try {
         final d = DateTime.tryParse(dateRaw);
@@ -878,15 +1222,24 @@ class _ScanScreenState extends State<ScanScreen>
           } else {
             const months = [
               '',
-              'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+              'Jan',
+              'Feb',
+              'Mar',
+              'Apr',
+              'May',
+              'Jun',
+              'Jul',
+              'Aug',
+              'Sep',
+              'Oct',
+              'Nov',
+              'Dec',
             ];
             dateLabel = '${d.day} ${months[d.month]} ${d.year}';
           }
         }
       } catch (_) {}
 
-      // Format amount
       String fmtAmount(double v) {
         if (v >= 100000) return '₹${(v / 100000).toStringAsFixed(1)}L';
         if (v >= 1000) {
@@ -917,10 +1270,11 @@ class _ScanScreenState extends State<ScanScreen>
               onTap: () {},
               child: Padding(
                 padding: EdgeInsets.symmetric(
-                    horizontal: R.p(16), vertical: R.p(13)),
+                  horizontal: R.p(16),
+                  vertical: R.p(13),
+                ),
                 child: Row(
                   children: [
-                    // Icon
                     Container(
                       width: R.p(44).clamp(38.0, 50.0),
                       height: R.p(44).clamp(38.0, 50.0),
@@ -928,11 +1282,9 @@ class _ScanScreenState extends State<ScanScreen>
                         color: c.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(R.r(12)),
                       ),
-                      child:
-                          Icon(catIcon, color: c, size: R.fs(20)),
+                      child: Icon(catIcon, color: c, size: R.fs(20)),
                     ),
                     SizedBox(width: R.p(12)),
-                    // Info
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -956,15 +1308,14 @@ class _ScanScreenState extends State<ScanScreen>
                           SizedBox(height: R.p(3)),
                           Row(
                             children: [
-                              // Type badge
                               Container(
                                 padding: EdgeInsets.symmetric(
-                                    horizontal: R.p(6),
-                                    vertical: R.p(2)),
+                                  horizontal: R.p(6),
+                                  vertical: R.p(2),
+                                ),
                                 decoration: BoxDecoration(
                                   color: c.withOpacity(0.12),
-                                  borderRadius:
-                                      BorderRadius.circular(R.r(5)),
+                                  borderRadius: BorderRadius.circular(R.r(5)),
                                 ),
                                 child: Text(
                                   isCredit ? 'IN' : 'OUT',
@@ -978,17 +1329,21 @@ class _ScanScreenState extends State<ScanScreen>
                               ),
                               if (isRecurring) ...[
                                 SizedBox(width: R.p(5)),
-                                Icon(Icons.repeat_rounded,
-                                    color: T.accent,
-                                    size: R.fs(10)),
+                                Icon(
+                                  Icons.repeat_rounded,
+                                  color: T.accent,
+                                  size: R.fs(10),
+                                ),
                               ],
                               SizedBox(width: R.p(6)),
                               Container(
-                                  width: 3,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                      color: T.textMuted,
-                                      shape: BoxShape.circle)),
+                                width: 3,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  color: T.textMuted,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
                               SizedBox(width: R.p(6)),
                               Text(
                                 dateLabel,
@@ -1000,18 +1355,21 @@ class _ScanScreenState extends State<ScanScreen>
                               if (description.isNotEmpty) ...[
                                 SizedBox(width: R.p(6)),
                                 Container(
-                                    width: 3,
-                                    height: 3,
-                                    decoration: BoxDecoration(
-                                        color: T.textMuted,
-                                        shape: BoxShape.circle)),
+                                  width: 3,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: T.textMuted,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
                                 SizedBox(width: R.p(6)),
                                 Expanded(
                                   child: Text(
                                     description,
                                     style: TextStyle(
-                                        color: T.textMuted,
-                                        fontSize: R.fs(11)),
+                                      color: T.textMuted,
+                                      fontSize: R.fs(11),
+                                    ),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -1022,7 +1380,6 @@ class _ScanScreenState extends State<ScanScreen>
                       ),
                     ),
                     SizedBox(width: R.p(8)),
-                    // Amount
                     Text(
                       '${isCredit ? '+' : '-'}${fmtAmount(amount)}',
                       style: TextStyle(
@@ -1040,8 +1397,7 @@ class _ScanScreenState extends State<ScanScreen>
           if (i < txns.length - 1)
             Padding(
               padding: EdgeInsets.symmetric(horizontal: R.p(16)),
-              child:
-                  Divider(color: T.border.withOpacity(0.6), height: 1),
+              child: Divider(color: T.border.withOpacity(0.6), height: 1),
             ),
         ],
       );
@@ -1086,6 +1442,11 @@ class _ScanScreenState extends State<ScanScreen>
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// ALL SUPPORTING WIDGETS (REMAIN THE SAME)
+// ═══════════════════════════════════════════════════════════════
+
 class _TabItem extends StatelessWidget {
   final String label;
   final int count;
@@ -1125,14 +1486,15 @@ class _TabItem extends StatelessWidget {
                 style: TextStyle(
                   color: active ? color : T.textSecondary,
                   fontSize: R.fs(12),
-                  fontWeight:
-                      active ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
               SizedBox(width: R.p(5)),
               Container(
                 padding: EdgeInsets.symmetric(
-                    horizontal: R.p(5), vertical: R.p(1)),
+                  horizontal: R.p(5),
+                  vertical: R.p(1),
+                ),
                 decoration: BoxDecoration(
                   color: active
                       ? color.withOpacity(0.18)
@@ -1156,14 +1518,10 @@ class _TabItem extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// SHIMMER
-// ═══════════════════════════════════════════════════════════════
 class _Shimmer extends StatefulWidget {
   final double width, height;
   final double? radius;
-  const _Shimmer(
-      {required this.width, required this.height, this.radius});
+  const _Shimmer({required this.width, required this.height, this.radius});
 
   @override
   State<_Shimmer> createState() => _ShimmerState();
@@ -1178,8 +1536,9 @@ class _ShimmerState extends State<_Shimmer>
   void initState() {
     super.initState();
     _ac = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
     _anim = CurvedAnimation(parent: _ac, curve: Curves.easeInOut);
   }
 
@@ -1205,10 +1564,6 @@ class _ShimmerState extends State<_Shimmer>
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ALL SUPPORTING WIDGETS (unchanged from original)
-// ═══════════════════════════════════════════════════════════════
-
 class _AccountSelector extends StatelessWidget {
   final String selected;
   final List<(String, String, String)> accounts;
@@ -1226,8 +1581,26 @@ class _AccountSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sel = accounts.firstWhere((a) => a.$1 == selected,
-        orElse: () => accounts.first);
+    // ✅ HANDLE EMPTY ACCOUNTS
+    if (accounts.isEmpty) {
+      return Container(
+        padding: EdgeInsets.all(R.p(14)),
+        decoration: BoxDecoration(
+          color: T.elevated,
+          borderRadius: BorderRadius.circular(R.r(14)),
+          border: Border.all(color: T.border),
+        ),
+        child: Text(
+          'No accounts found. Please create one.',
+          style: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+        ),
+      );
+    }
+
+    final sel = accounts.firstWhere(
+      (a) => a.$1 == selected,
+      orElse: () => accounts.first,
+    );
     return Column(
       children: [
         GestureDetector(
@@ -1254,37 +1627,48 @@ class _AccountSelector extends StatelessWidget {
                   width: R.p(36).clamp(30.0, 44.0),
                   height: R.p(36).clamp(30.0, 44.0),
                   decoration: BoxDecoration(
-                    gradient:
-                        LinearGradient(colors: [T.accent, T.accentSoft]),
+                    gradient: LinearGradient(colors: [T.accent, T.accentSoft]),
                     borderRadius: BorderRadius.circular(R.r(10)),
                   ),
-                  child: Icon(Icons.account_balance_rounded,
-                      color: Colors.white, size: R.fs(16)),
+                  child: Icon(
+                    Icons.account_balance_rounded,
+                    color: Colors.white,
+                    size: R.fs(16),
+                  ),
                 ),
                 SizedBox(width: R.p(12)),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(sel.$1,
-                          style: TextStyle(
-                              color: T.textPrimary,
-                              fontSize: R.fs(14),
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.2)),
+                      Text(
+                        sel.$1,
+                        style: TextStyle(
+                          color: T.textPrimary,
+                          fontSize: R.fs(14),
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
                       SizedBox(height: R.p(2)),
-                      Text(sel.$2,
-                          style: TextStyle(
-                              color: T.textSecondary,
-                              fontSize: R.fs(11))),
+                      Text(
+                        sel.$2,
+                        style: TextStyle(
+                          color: T.textSecondary,
+                          fontSize: R.fs(11),
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 AnimatedRotation(
                   turns: isOpen ? 0.5 : 0,
                   duration: const Duration(milliseconds: 200),
-                  child: Icon(Icons.keyboard_arrow_down_rounded,
-                      color: T.textSecondary, size: R.fs(20)),
+                  child: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: T.textSecondary,
+                    size: R.fs(20),
+                  ),
                 ),
               ],
             ),
@@ -1303,11 +1687,17 @@ class _AccountSelector extends StatelessWidget {
                     ),
                     border: Border(
                       left: BorderSide(
-                          color: T.accent.withOpacity(0.6), width: 1.5),
+                        color: T.accent.withOpacity(0.6),
+                        width: 1.5,
+                      ),
                       right: BorderSide(
-                          color: T.accent.withOpacity(0.6), width: 1.5),
+                        color: T.accent.withOpacity(0.6),
+                        width: 1.5,
+                      ),
                       bottom: BorderSide(
-                          color: T.accent.withOpacity(0.6), width: 1.5),
+                        color: T.accent.withOpacity(0.6),
+                        width: 1.5,
+                      ),
                     ),
                   ),
                   child: Column(
@@ -1318,22 +1708,25 @@ class _AccountSelector extends StatelessWidget {
                         child: Container(
                           width: double.infinity,
                           padding: EdgeInsets.symmetric(
-                              horizontal: R.p(14), vertical: R.p(12)),
+                            horizontal: R.p(14),
+                            vertical: R.p(12),
+                          ),
                           decoration: BoxDecoration(
                             color: isSel
                                 ? T.accent.withOpacity(0.1)
                                 : Colors.transparent,
                             border: Border(
-                                top: BorderSide(
-                                    color: T.border.withOpacity(0.5),
-                                    width: 1)),
+                              top: BorderSide(
+                                color: T.border.withOpacity(0.5),
+                                width: 1,
+                              ),
+                            ),
                           ),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.account_balance_wallet_rounded,
-                                color:
-                                    isSel ? T.accent : T.textSecondary,
+                                color: isSel ? T.accent : T.textSecondary,
                                 size: R.fs(15),
                               ),
                               SizedBox(width: R.p(10)),
@@ -1341,9 +1734,7 @@ class _AccountSelector extends StatelessWidget {
                                 child: Text(
                                   '${a.$1} · ${a.$2}',
                                   style: TextStyle(
-                                    color: isSel
-                                        ? T.accent
-                                        : T.textSecondary,
+                                    color: isSel ? T.accent : T.textSecondary,
                                     fontSize: R.fs(13),
                                     fontWeight: isSel
                                         ? FontWeight.w700
@@ -1352,8 +1743,11 @@ class _AccountSelector extends StatelessWidget {
                                 ),
                               ),
                               if (isSel)
-                                Icon(Icons.check_rounded,
-                                    color: T.accent, size: R.fs(16)),
+                                Icon(
+                                  Icons.check_rounded,
+                                  color: T.accent,
+                                  size: R.fs(16),
+                                ),
                             ],
                           ),
                         ),
@@ -1373,11 +1767,12 @@ class _ActionButton extends StatelessWidget {
   final String label;
   final List<Color> gradient;
   final VoidCallback onTap;
-  const _ActionButton(
-      {required this.icon,
-      required this.label,
-      required this.gradient,
-      required this.onTap});
+  const _ActionButton({
+    required this.icon,
+    required this.label,
+    required this.gradient,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1391,15 +1786,17 @@ class _ActionButton extends StatelessWidget {
           height: R.p(50).clamp(44.0, 58.0),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-                colors: gradient,
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight),
+              colors: gradient,
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
             borderRadius: BorderRadius.circular(R.r(14)),
             boxShadow: [
               BoxShadow(
-                  color: gradient.first.withOpacity(0.3),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4))
+                color: gradient.first.withOpacity(0.3),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
             ],
           ),
           child: Row(
@@ -1407,12 +1804,15 @@ class _ActionButton extends StatelessWidget {
             children: [
               Icon(icon, color: Colors.white, size: R.fs(18)),
               SizedBox(width: R.p(10)),
-              Text(label,
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: R.fs(14),
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2)),
+              Text(
+                label,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: R.fs(14),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.2,
+                ),
+              ),
             ],
           ),
         ),
@@ -1449,7 +1849,9 @@ class _DropField extends StatelessWidget {
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             padding: EdgeInsets.symmetric(
-                horizontal: R.p(14), vertical: R.p(13)),
+              horizontal: R.p(14),
+              vertical: R.p(13),
+            ),
             decoration: BoxDecoration(
               color: T.surface,
               borderRadius: BorderRadius.only(
@@ -1462,8 +1864,8 @@ class _DropField extends StatelessWidget {
                 color: isOpen
                     ? accent.withOpacity(0.7)
                     : value.isEmpty
-                        ? T.border
-                        : accent.withOpacity(0.4),
+                    ? T.border
+                    : accent.withOpacity(0.4),
                 width: isOpen ? 1.5 : 1,
               ),
             ),
@@ -1484,8 +1886,11 @@ class _DropField extends StatelessWidget {
                 AnimatedRotation(
                   turns: isOpen ? 0.5 : 0,
                   duration: const Duration(milliseconds: 180),
-                  child: Icon(Icons.keyboard_arrow_down_rounded,
-                      color: T.textSecondary, size: R.fs(18)),
+                  child: Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: T.textSecondary,
+                    size: R.fs(18),
+                  ),
                 ),
               ],
             ),
@@ -1505,11 +1910,17 @@ class _DropField extends StatelessWidget {
                     ),
                     border: Border(
                       left: BorderSide(
-                          color: accent.withOpacity(0.7), width: 1.5),
+                        color: accent.withOpacity(0.7),
+                        width: 1.5,
+                      ),
                       right: BorderSide(
-                          color: accent.withOpacity(0.7), width: 1.5),
+                        color: accent.withOpacity(0.7),
+                        width: 1.5,
+                      ),
                       bottom: BorderSide(
-                          color: accent.withOpacity(0.7), width: 1.5),
+                        color: accent.withOpacity(0.7),
+                        width: 1.5,
+                      ),
                     ),
                   ),
                   child: SingleChildScrollView(
@@ -1521,32 +1932,40 @@ class _DropField extends StatelessWidget {
                           child: Container(
                             width: double.infinity,
                             padding: EdgeInsets.symmetric(
-                                horizontal: R.p(14), vertical: R.p(11)),
+                              horizontal: R.p(14),
+                              vertical: R.p(11),
+                            ),
                             decoration: BoxDecoration(
                               color: isSel
                                   ? accent.withOpacity(0.1)
                                   : Colors.transparent,
                               border: Border(
-                                  top: BorderSide(
-                                      color: T.border.withOpacity(0.4),
-                                      width: 1)),
+                                top: BorderSide(
+                                  color: T.border.withOpacity(0.4),
+                                  width: 1,
+                                ),
+                              ),
                             ),
                             child: Row(
                               children: [
                                 Expanded(
-                                  child: Text(item,
-                                      style: TextStyle(
-                                          color: isSel
-                                              ? accent
-                                              : T.textSecondary,
-                                          fontSize: R.fs(13),
-                                          fontWeight: isSel
-                                              ? FontWeight.w700
-                                              : FontWeight.w500)),
+                                  child: Text(
+                                    item,
+                                    style: TextStyle(
+                                      color: isSel ? accent : T.textSecondary,
+                                      fontSize: R.fs(13),
+                                      fontWeight: isSel
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                    ),
+                                  ),
                                 ),
                                 if (isSel)
-                                  Icon(Icons.check_rounded,
-                                      color: accent, size: R.fs(15)),
+                                  Icon(
+                                    Icons.check_rounded,
+                                    color: accent,
+                                    size: R.fs(15),
+                                  ),
                               ],
                             ),
                           ),
@@ -1615,9 +2034,10 @@ class _TFieldState extends State<_TField> {
         boxShadow: _focused
             ? [
                 BoxShadow(
-                    color: T.accent.withOpacity(0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3))
+                  color: T.accent.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
               ]
             : [],
       ),
@@ -1629,29 +2049,32 @@ class _TFieldState extends State<_TField> {
         readOnly: widget.onTap != null,
         onTap: widget.onTap,
         style: TextStyle(
-            color: T.textPrimary,
-            fontSize: R.fs(14),
-            fontWeight: FontWeight.w500),
+          color: T.textPrimary,
+          fontSize: R.fs(14),
+          fontWeight: FontWeight.w500,
+        ),
         decoration: InputDecoration(
           hintText: widget.hint,
-          hintStyle:
-              TextStyle(color: T.textMuted, fontSize: R.fs(13)),
+          hintStyle: TextStyle(color: T.textMuted, fontSize: R.fs(13)),
           prefixIcon: widget.prefix != null
               ? Padding(
-                  padding:
-                      EdgeInsets.only(left: R.p(12), right: R.p(6)),
-                  child: widget.prefix)
+                  padding: EdgeInsets.only(left: R.p(12), right: R.p(6)),
+                  child: widget.prefix,
+                )
               : null,
           prefixIconConstraints: const BoxConstraints(),
           suffixIcon: widget.suffix != null
               ? Padding(
                   padding: EdgeInsets.only(right: R.p(12)),
-                  child: widget.suffix)
+                  child: widget.suffix,
+                )
               : null,
           suffixIconConstraints: const BoxConstraints(),
           border: InputBorder.none,
           contentPadding: EdgeInsets.symmetric(
-              horizontal: R.p(14), vertical: R.p(13)),
+            horizontal: R.p(14),
+            vertical: R.p(13),
+          ),
         ),
       ),
     );
@@ -1666,18 +2089,20 @@ class _ReadOnlyField extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding:
-          EdgeInsets.symmetric(horizontal: R.p(14), vertical: R.p(13)),
+      padding: EdgeInsets.symmetric(horizontal: R.p(14), vertical: R.p(13)),
       decoration: BoxDecoration(
         color: T.elevated,
         borderRadius: BorderRadius.circular(R.r(12)),
         border: Border.all(color: T.border, width: 1),
       ),
-      child: Text(value,
-          style: TextStyle(
-              color: T.textSecondary,
-              fontSize: R.fs(14),
-              fontWeight: FontWeight.w500)),
+      child: Text(
+        value,
+        style: TextStyle(
+          color: T.textSecondary,
+          fontSize: R.fs(14),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
     );
   }
 }
@@ -1693,8 +2118,7 @@ class _RecurringRow extends StatelessWidget {
       onTap: () => onChanged(!value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: EdgeInsets.symmetric(
-            horizontal: R.p(16), vertical: R.p(14)),
+        padding: EdgeInsets.symmetric(horizontal: R.p(16), vertical: R.p(14)),
         decoration: BoxDecoration(
           color: value ? T.accent.withOpacity(0.08) : T.elevated,
           borderRadius: BorderRadius.circular(R.r(14)),
@@ -1705,23 +2129,29 @@ class _RecurringRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.repeat_rounded,
-                color: value ? T.accent : T.textSecondary,
-                size: R.fs(18)),
+            Icon(
+              Icons.repeat_rounded,
+              color: value ? T.accent : T.textSecondary,
+              size: R.fs(18),
+            ),
             SizedBox(width: R.p(12)),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Recurring transaction',
-                      style: TextStyle(
-                          color: value ? T.accent : T.textPrimary,
-                          fontSize: R.fs(14),
-                          fontWeight: FontWeight.w600)),
+                  Text(
+                    'Recurring transaction',
+                    style: TextStyle(
+                      color: value ? T.accent : T.textPrimary,
+                      fontSize: R.fs(14),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                   if (value)
-                    Text('Will repeat monthly',
-                        style: TextStyle(
-                            color: T.textMuted, fontSize: R.fs(11))),
+                    Text(
+                      'Will repeat monthly',
+                      style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
+                    ),
                 ],
               ),
             ),
@@ -1740,9 +2170,7 @@ class _RecurringRow extends StatelessWidget {
               child: AnimatedAlign(
                 duration: const Duration(milliseconds: 200),
                 curve: Curves.easeInOut,
-                alignment: value
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
+                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
                 child: Container(
                   width: R.p(18).clamp(14.0, 22.0),
                   height: R.p(18).clamp(14.0, 22.0),
@@ -1751,9 +2179,10 @@ class _RecurringRow extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                          color: Colors.black26,
-                          blurRadius: 4,
-                          offset: Offset(0, 1))
+                        color: Colors.black26,
+                        blurRadius: 4,
+                        offset: Offset(0, 1),
+                      ),
                     ],
                   ),
                 ),
@@ -1770,8 +2199,11 @@ class _OutlineBtn extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
-  const _OutlineBtn(
-      {required this.label, required this.color, required this.onTap});
+  const _OutlineBtn({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1788,11 +2220,14 @@ class _OutlineBtn extends StatelessWidget {
             border: Border.all(color: color.withOpacity(0.5), width: 1.5),
           ),
           child: Center(
-            child: Text(label,
-                style: TextStyle(
-                    color: color,
-                    fontSize: R.fs(14),
-                    fontWeight: FontWeight.w700)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: R.fs(14),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ),
       ),
@@ -1804,10 +2239,11 @@ class _GradientBtn extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
   final bool isLoading;
-  const _GradientBtn(
-      {required this.label,
-      required this.onTap,
-      this.isLoading = false});
+  const _GradientBtn({
+    required this.label,
+    required this.onTap,
+    this.isLoading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1821,15 +2257,17 @@ class _GradientBtn extends StatelessWidget {
           height: R.p(52).clamp(46.0, 58.0),
           decoration: BoxDecoration(
             gradient: LinearGradient(
-                colors: [T.accent, T.accentSoft],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight),
+              colors: [T.accent, T.accentSoft],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
             borderRadius: BorderRadius.circular(R.r(14)),
             boxShadow: [
               BoxShadow(
-                  color: T.accent.withOpacity(0.38),
-                  blurRadius: 18,
-                  offset: const Offset(0, 5))
+                color: T.accent.withOpacity(0.38),
+                blurRadius: 18,
+                offset: const Offset(0, 5),
+              ),
             ],
           ),
           child: Center(
@@ -1838,13 +2276,19 @@ class _GradientBtn extends StatelessWidget {
                     width: 20,
                     height: 20,
                     child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2))
-                : Text(label,
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : Text(
+                    label,
                     style: TextStyle(
-                        color: Colors.white,
-                        fontSize: R.fs(14),
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2)),
+                      color: Colors.white,
+                      fontSize: R.fs(14),
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
           ),
         ),
       ),
@@ -1868,9 +2312,10 @@ class _SCard extends StatelessWidget {
         border: Border.all(color: T.border, width: 1),
         boxShadow: [
           BoxShadow(
-              color: T.border.withOpacity(0.5),
-              blurRadius: 12,
-              offset: const Offset(0, 4))
+            color: T.border.withOpacity(0.5),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: child,
@@ -1884,12 +2329,15 @@ class _FieldLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(text,
-        style: TextStyle(
-            color: T.textSecondary,
-            fontSize: R.fs(12),
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.3));
+    return Text(
+      text,
+      style: TextStyle(
+        color: T.textSecondary,
+        fontSize: R.fs(12),
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.3,
+      ),
+    );
   }
 }
 
@@ -1901,12 +2349,49 @@ class _Divider extends StatelessWidget {
         Expanded(child: Divider(color: T.border, height: 1)),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: R.p(12)),
-          child: Text('or fill manually',
-              style:
-                  TextStyle(color: T.textMuted, fontSize: R.fs(11))),
+          child: Text(
+            'or fill manually',
+            style: TextStyle(color: T.textMuted, fontSize: R.fs(11)),
+          ),
         ),
         Expanded(child: Divider(color: T.border, height: 1)),
       ],
+    );
+  }
+}
+
+class _ConfirmRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  const _ConfirmRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: T.textMuted),
+          const SizedBox(width: 6),
+          Text('$label: ', style: TextStyle(color: T.textMuted, fontSize: 13)),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: T.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
